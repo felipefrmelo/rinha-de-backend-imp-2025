@@ -1,15 +1,39 @@
-import pytest
-from fastapi.testclient import TestClient
 from uuid import uuid4
 
+import pytest
+from fastapi.testclient import TestClient
+
+from src.api import create_app
 from src.models import PaymentRequest
 from src.services import PaymentResponse
-from src.api import create_app
 
 
 class MockPaymentProcessor:
-    def process_payment(self, payment_request: PaymentRequest) -> PaymentResponse:
-        return PaymentResponse(message="payment processed successfully")
+    def __init__(self, falling: bool = False, id: str = "default-processor"):
+        self.falling = falling
+        self.id = id
+
+    async def process_payment(self, payment_request: PaymentRequest) -> PaymentResponse:
+        if self.falling:
+            raise Exception("HTTP 500 - Internal Server Error")
+        return PaymentResponse(message="payment processed successfully by " + self.id)
+
+
+class MockPaymentStorage:
+    def __init__(self):
+        self.stored_payments = []
+
+    async def store_payment(
+        self, payment_request: PaymentRequest, processor_used: str, processed_at
+    ) -> None:
+        self.stored_payments.append(
+            {
+                "correlation_id": payment_request.correlationId,
+                "amount": payment_request.amount,
+                "processor_used": processor_used,
+                "processed_at": processed_at,
+            }
+        )
 
 
 @pytest.fixture
@@ -19,16 +43,35 @@ def mock_processor():
 
 
 @pytest.fixture
-def client(mock_processor):
+def mock_storage():
+    """Create a mock payment storage for testing"""
+    return MockPaymentStorage()
+
+
+@pytest.fixture
+def mock_failing_processor():
+    """Create a mock payment processor that always fails"""
+    return MockPaymentProcessor(falling=True)
+
+
+@pytest.fixture
+def mock_fallback_processor():
+    """Create a mock fallback payment processor that works"""
+    return MockPaymentProcessor(id="fallback-processor")
+
+
+@pytest.fixture
+def client(mock_processor, mock_fallback_processor, mock_storage):
     """Create a test client with mock processor"""
-    app = create_app(default_processor=mock_processor)
+    app = create_app(
+        default_processor=mock_processor,
+        fallback_processor=mock_fallback_processor,
+        storage=mock_storage,
+    )
     return TestClient(app)
 
 
 @pytest.fixture
 def valid_payment_data():
     """Create valid payment data for testing"""
-    return {
-        "correlationId": str(uuid4()),
-        "amount": "19.90"
-    }
+    return {"correlationId": str(uuid4()), "amount": "19.90"}
