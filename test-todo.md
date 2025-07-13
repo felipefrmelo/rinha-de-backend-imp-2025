@@ -14,16 +14,16 @@
 - [x] Test: Reject zero amounts
 
 #### 2. Payment Service Core
-- [ ] Test: PaymentService can be instantiated
-- [ ] Test: Route payment to default processor successfully
-- [ ] Test: Handle successful payment processor response
-- [ ] Test: Return processed payment result
+- [x] Test: PaymentService can be instantiated with dependency injection
+- [x] Test: Route payment to default processor successfully
+- [x] Test: Handle successful payment processor response
+- [x] Test: Return processed payment result
 
 #### 3. Payment Endpoints
-- [ ] Test: POST /payments returns 200 on success
-- [ ] Test: POST /payments returns 400 on invalid input
-- [ ] Test: Request body deserialization works correctly
-- [ ] Test: Response serialization works correctly
+- [x] Test: POST /payments returns 200 on success
+- [x] Test: POST /payments returns 422 on invalid input (following FastAPI standards)
+- [x] Test: Request body deserialization works correctly
+- [x] Test: Response serialization works correctly
 
 ### Phase 2: Fallback Logic (Future)
 - [ ] Health check client implementation

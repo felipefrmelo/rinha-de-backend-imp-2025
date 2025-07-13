@@ -79,7 +79,4 @@ coverage.xml
 # Local development
 uv.lock
 
-# Ignore local plans and todos
-tdd-plan.md
-test-todo.md
 
