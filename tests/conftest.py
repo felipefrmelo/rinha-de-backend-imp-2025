@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from src.api import create_app
 from src.models import PaymentRequest
 from src.services import PaymentResponse
+from src.health_check import HealthStatus
+from src.health_check import HealthCheckClient
 
 
 class MockPaymentProcessor:
@@ -59,6 +61,15 @@ class MockPaymentStorage:
         }
 
 
+
+class MockHealthCheckClient(HealthCheckClient):
+    def __init__(self, health_status: HealthStatus | None = None):
+        self.health_status = health_status or HealthStatus(failing=False, min_response_time=100)
+
+    async def check_health(self) -> HealthStatus:
+        return self.health_status
+
+
 @pytest.fixture
 def mock_processor():
     """Create a mock payment processor for testing"""
@@ -84,12 +95,11 @@ def mock_fallback_processor():
 
 
 @pytest.fixture
-def client(mock_processor, mock_fallback_processor, mock_storage):
+def client(payment_service_factory):
     """Create a test client with mock processor"""
+    payment_service = payment_service_factory()
     app = create_app(
-        default_processor=mock_processor,
-        fallback_processor=mock_fallback_processor,
-        storage=mock_storage,
+        payment_service=payment_service,
     )
     return TestClient(app)
 
@@ -98,3 +108,58 @@ def client(mock_processor, mock_fallback_processor, mock_storage):
 def valid_payment_data():
     """Create valid payment data for testing"""
     return {"correlationId": str(uuid4()), "amount": "19.90"}
+
+
+@pytest.fixture
+def mock_health_check_client():
+    """Create a mock health check client for testing"""
+    return MockHealthCheckClient()
+
+
+@pytest.fixture
+def mock_failing_health_check_client():
+    """Create a mock health check client that reports failure"""
+    return MockHealthCheckClient(HealthStatus(failing=True, min_response_time=5000))
+
+
+def create_payment_service(
+    mock_processor=None,
+    mock_fallback_processor=None, 
+    mock_storage=None,
+    mock_health_check_client=None,
+    mock_fallback_health_check_client=None
+):
+    """Factory function to create PaymentService with sensible defaults"""
+    from src.services import PaymentService, PaymentProvider
+    
+    # Use defaults if not provided
+    processor = mock_processor or MockPaymentProcessor()
+    fallback_processor = mock_fallback_processor or MockPaymentProcessor(id="fallback-processor")
+    storage = mock_storage or MockPaymentStorage()
+    health_check = mock_health_check_client or MockHealthCheckClient()
+    fallback_health_check = mock_fallback_health_check_client or MockHealthCheckClient()
+    
+    # Create PaymentProvider objects
+    default_provider = PaymentProvider(
+        processor=processor,
+        health_check=health_check,
+        name="default"
+    )
+    
+    fallback_provider = PaymentProvider(
+        processor=fallback_processor,
+        health_check=fallback_health_check,
+        name="fallback"
+    )
+    
+    return PaymentService(
+        default=default_provider,
+        fallback=fallback_provider,
+        storage=storage,
+    )
+
+
+@pytest.fixture
+def payment_service_factory():
+    """Fixture that returns the payment service factory function"""
+    return create_payment_service

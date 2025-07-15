@@ -47,7 +47,7 @@ class HealthCheckClient:
 
         Uses cache to respect rate limiting (1 call per 5 seconds).
         """
-        key = "payments_service_health"
+        key = self.base_url
 
         # Try to get from cache first
         cached_status = await self.cache.get(key)

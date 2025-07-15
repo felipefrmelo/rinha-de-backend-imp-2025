@@ -1,23 +1,16 @@
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import FastAPI, Query
 
 from src.models import PaymentRequest, PaymentsSummary, ProcessorSummary
-from src.services import PaymentProcessor, PaymentService, PaymentStorage
+from src.services import PaymentService
 
 
 def create_app(
-    default_processor: PaymentProcessor,
-    fallback_processor: PaymentProcessor,
-    storage: PaymentStorage,
+    payment_service: PaymentService,
 ) -> FastAPI:
     app = FastAPI()
-    payment_service = PaymentService(
-        default_processor=default_processor,
-        fallback_processor=fallback_processor,
-        storage=storage,
-    )
 
     @app.post("/payments")
     async def process_payment(payment_request: PaymentRequest):
@@ -27,27 +20,15 @@ def create_app(
     @app.get("/payments-summary", response_model=PaymentsSummary)
     async def payments_summary(
         from_: Annotated[
-            Optional[datetime],
-            Query(
-                alias="from",
-                description="Start datetime in ISO format",
-                examples=["2024-01-01T00:00:00Z", "2024-01-01T00:00:00"],
-            ),
-        ] = None,
+            datetime,
+            Query(alias="from"),
+        ] = datetime.min,
         to: Annotated[
-            Optional[datetime],
-            Query(
-                description="End datetime in ISO format", 
-                examples=["2024-12-31T23:59:59Z", "2024-12-31T23:59:59"],
-            ),
-        ] = None,
+            datetime,
+            Query(),
+        ] = datetime.max,
     ):
-        # Use datetime parameters directly - FastAPI handles parsing automatically
-        from_timestamp = from_ if from_ else datetime.min
-        to_timestamp = to if to else datetime.max
-
-        # Get summary from storage
-        summary_data = await storage.get_payments_summary(from_timestamp, to_timestamp)
+        summary_data = await payment_service.get_payments_summary(from_, to)
 
         return PaymentsSummary(
             default=ProcessorSummary(
