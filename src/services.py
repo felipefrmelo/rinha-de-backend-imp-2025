@@ -27,6 +27,12 @@ class PaymentStorage(Protocol):
         """Store a payment request."""
         ...
 
+    async def get_payments_summary(
+        self, from_timestamp: datetime, to_timestamp: datetime
+    ) -> dict:
+        """Get payment summary grouped by processor type."""
+        ...
+
 
 class PaymentService:
     def __init__(

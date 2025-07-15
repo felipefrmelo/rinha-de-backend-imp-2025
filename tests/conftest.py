@@ -35,6 +35,29 @@ class MockPaymentStorage:
             }
         )
 
+    async def get_payments_summary(self, from_timestamp, to_timestamp) -> dict:
+        """Get payment summary grouped by processor type."""
+        # Filter payments by timestamp range
+        filtered_payments = [
+            p for p in self.stored_payments
+            if from_timestamp <= p["processed_at"] <= to_timestamp
+        ]
+        
+        # Group by processor type
+        default_payments = [p for p in filtered_payments if p["processor_used"] == "default"]
+        fallback_payments = [p for p in filtered_payments if p["processor_used"] == "fallback"]
+        
+        return {
+            "default": {
+                "totalRequests": len(default_payments),
+                "totalAmount": sum(p["amount"] for p in default_payments)
+            },
+            "fallback": {
+                "totalRequests": len(fallback_payments),
+                "totalAmount": sum(p["amount"] for p in fallback_payments)
+            }
+        }
+
 
 @pytest.fixture
 def mock_processor():
