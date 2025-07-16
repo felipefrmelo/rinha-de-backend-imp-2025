@@ -3,8 +3,9 @@ from uuid import uuid4
 
 import pytest
 
-from src.models import PaymentRequest
-from src.services import PaymentService
+from src.domain.models import PaymentRequest
+from src.domain.services import PaymentService
+from src.domain.health_check import HealthStatus
 
 
 def test_payment_service_can_be_instantiated(payment_service_factory):
@@ -139,7 +140,6 @@ async def test_payment_service_fails_when_both_processors_unhealthy(
     mock_processor, mock_fallback_processor, mock_storage, payment_service_factory
 ):
     """Test that PaymentService fails gracefully when both processors are unhealthy"""
-    from src.health_check import HealthStatus
     from tests.conftest import MockHealthCheckClient
     
     # Arrange - both health checks report failing
@@ -169,7 +169,6 @@ async def test_payment_service_optimizes_for_lowest_fees_by_preferring_default(
 ):
     """Test that PaymentService optimizes for lowest fees by preferring default processor"""
     from tests.conftest import MockHealthCheckClient
-    from src.health_check import HealthStatus
     
     # Arrange - both processors are healthy (default has lower fees per requirements)
     default_health = MockHealthCheckClient(HealthStatus(failing=False, min_response_time=100))
@@ -202,7 +201,6 @@ async def test_payment_service_maintains_fee_optimization_under_load(
 ):
     """Test that PaymentService maintains fee optimization across multiple requests"""
     from tests.conftest import MockHealthCheckClient
-    from src.health_check import HealthStatus
     
     # Arrange - both processors healthy, default has lower fees
     default_health = MockHealthCheckClient(HealthStatus(failing=False, min_response_time=100))

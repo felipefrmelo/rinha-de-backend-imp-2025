@@ -2,10 +2,10 @@ import pytest
 from uuid import uuid4
 from decimal import Decimal
 from pydantic import ValidationError
+from src.domain.models import PaymentRequest
 
 def test_payment_request_accepts_valid_correlation_id_and_amount():
     """Test that PaymentRequest accepts valid correlationId and amount"""
-    from src.models import PaymentRequest
     
     correlation_id = uuid4()
     amount = Decimal("19.90")
@@ -21,7 +21,6 @@ def test_payment_request_accepts_valid_correlation_id_and_amount():
 
 def test_payment_request_rejects_missing_correlation_id():
     """Test that PaymentRequest rejects missing correlationId"""
-    from src.models import PaymentRequest
     
     amount = Decimal("19.90")
     
@@ -34,7 +33,6 @@ def test_payment_request_rejects_missing_correlation_id():
 
 def test_payment_request_rejects_missing_amount():
     """Test that PaymentRequest rejects missing amount"""
-    from src.models import PaymentRequest
     
     correlation_id = str(uuid4())
     
@@ -47,7 +45,6 @@ def test_payment_request_rejects_missing_amount():
 
 def test_payment_request_rejects_invalid_uuid_format():
     """Test that PaymentRequest rejects invalid UUID format for correlationId"""
-    from src.models import PaymentRequest
     
     invalid_correlation_id = "not-a-uuid"
     amount = Decimal("19.90")
@@ -64,7 +61,6 @@ def test_payment_request_rejects_invalid_uuid_format():
 
 def test_payment_request_rejects_negative_amount():
     """Test that PaymentRequest rejects negative amount"""
-    from src.models import PaymentRequest
     
     correlation_id = uuid4()
     negative_amount = Decimal("-10.00")
@@ -81,7 +77,6 @@ def test_payment_request_rejects_negative_amount():
 
 def test_payment_request_rejects_zero_amount():
     """Test that PaymentRequest rejects zero amount"""
-    from src.models import PaymentRequest
     
     correlation_id = uuid4()
     zero_amount = Decimal("0.00")

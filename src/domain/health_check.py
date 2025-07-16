@@ -1,37 +1,5 @@
-from typing import Optional, Protocol
-
-from pydantic import BaseModel
-
-
-class HttpResponse(Protocol):
-    status_code: int
-
-    def json(self) -> dict:
-        """Parse the response as JSON."""
-        ...
-
-
-class HttpClient(Protocol):
-    async def get(self, url: str) -> HttpResponse:
-        """Make an HTTP GET request."""
-        ...
-
-
-class HealthStatus(BaseModel):
-    failing: bool
-    min_response_time: int
-
-
-class HealthStatusCache(Protocol):
-    async def get(self, key: str) -> Optional[HealthStatus]:
-        """Get cached health status for a service."""
-        ...
-
-    async def set(
-        self, key: str, health_status: HealthStatus, ttl_seconds: int
-    ) -> None:
-        """Set health status in cache with TTL."""
-        ...
+from src.domain.models import HealthStatus
+from src.domain.protocols import HttpClient, HealthStatusCache
 
 
 class HealthCheckClient:

@@ -10,6 +10,10 @@ class PaymentRequest(BaseModel):
     amount: Annotated[Decimal, Field(gt=Decimal("0.00"))]
 
 
+class PaymentResponse(BaseModel):
+    message: str
+
+
 class ProcessorSummary(BaseModel):
     totalRequests: int
     totalAmount: Decimal
@@ -18,3 +22,9 @@ class ProcessorSummary(BaseModel):
 class PaymentsSummary(BaseModel):
     default: ProcessorSummary
     fallback: ProcessorSummary
+
+
+class HealthStatus(BaseModel):
+    failing: bool
+    min_response_time: int
+

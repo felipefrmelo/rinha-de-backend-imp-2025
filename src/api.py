@@ -3,8 +3,8 @@ from typing import Annotated
 
 from fastapi import FastAPI, Query
 
-from src.models import PaymentRequest, PaymentsSummary, ProcessorSummary
-from src.services import PaymentService
+from src.domain.models import PaymentRequest, PaymentsSummary, ProcessorSummary
+from src.domain.services import PaymentService
 
 
 def create_app(

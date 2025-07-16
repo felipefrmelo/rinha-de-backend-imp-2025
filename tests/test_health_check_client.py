@@ -2,7 +2,7 @@ from typing import Optional
 
 import pytest
 
-from src.health_check import HealthStatus
+from src.domain.health_check import HealthStatus
 
 
 class MockHealthStatusCache:
@@ -40,7 +40,7 @@ class MockResponse:
 
 def test_health_check_client_can_be_instantiated():
     """Test that HealthCheckClient can be instantiated"""
-    from src.health_check import HealthCheckClient
+    from src.domain.health_check import HealthCheckClient
 
     http_client = MockHttpClient()
     cache = MockHealthStatusCache()
@@ -55,7 +55,7 @@ def test_health_check_client_can_be_instantiated():
 @pytest.mark.asyncio
 async def test_health_check_client_can_check_service_health():
     """Test that HealthCheckClient can check service health"""
-    from src.health_check import HealthCheckClient
+    from src.domain.health_check import HealthCheckClient
 
     # Arrange
     http_client = MockHttpClient()
@@ -74,7 +74,7 @@ async def test_health_check_client_can_check_service_health():
 @pytest.mark.asyncio
 async def test_health_check_client_respects_rate_limiting():
     """Test that HealthCheckClient respects rate limiting (1 call per 5 seconds)"""
-    from src.health_check import HealthCheckClient
+    from src.domain.health_check import HealthCheckClient
 
     # Arrange
     http_client = MockHttpClient()

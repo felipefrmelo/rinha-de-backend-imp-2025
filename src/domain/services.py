@@ -1,38 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Protocol
 
-from pydantic import BaseModel
-
-from src.health_check import HealthCheckClient, HealthStatus
-from src.models import PaymentRequest
-
-
-class PaymentResponse(BaseModel):
-    message: str
-
-
-class PaymentProcessor(Protocol):
-    async def process_payment(self, payment_request: PaymentRequest) -> PaymentResponse:
-        """Process a payment request."""
-        ...
-
-
-class PaymentStorage(Protocol):
-    async def store_payment(
-        self,
-        payment_request: PaymentRequest,
-        processor_used: str,
-        processed_at: datetime,
-    ) -> None:
-        """Store a payment request."""
-        ...
-
-    async def get_payments_summary(
-        self, from_timestamp: datetime, to_timestamp: datetime
-    ) -> dict:
-        """Get payment summary grouped by processor type."""
-        ...
+from src.domain.models import PaymentRequest, PaymentResponse, HealthStatus
+from src.domain.protocols import PaymentProcessor, PaymentStorage
+from src.domain.health_check import HealthCheckClient
 
 
 @dataclass
@@ -107,4 +78,3 @@ class PaymentService:
     async def get_payments_summary(self, from_: datetime, to_: datetime) -> dict:
         """Get payment summary grouped by processor type."""
         return await self.storage.get_payments_summary(from_, to_)
-

@@ -1,0 +1,1 @@
+# Adapters layer - contains implementation details

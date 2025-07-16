@@ -4,10 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api import create_app
-from src.models import PaymentRequest
-from src.services import PaymentResponse
-from src.health_check import HealthStatus
-from src.health_check import HealthCheckClient
+from src.domain.models import PaymentRequest, PaymentResponse, HealthStatus
+from src.domain.health_check import HealthCheckClient
 
 
 class MockPaymentProcessor:
@@ -130,7 +128,7 @@ def create_payment_service(
     mock_fallback_health_check_client=None
 ):
     """Factory function to create PaymentService with sensible defaults"""
-    from src.services import PaymentService, PaymentProvider
+    from src.domain.services import PaymentService, PaymentProvider
     
     # Use defaults if not provided
     processor = mock_processor or MockPaymentProcessor()
