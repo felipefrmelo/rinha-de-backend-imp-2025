@@ -5,7 +5,7 @@ from src.domain.models import PaymentRequest, PaymentResponse, HealthStatus
 
 
 class PaymentProcessor(Protocol):
-    async def process_payment(self, payment_request: PaymentRequest) -> PaymentResponse:
+    async def process_payment(self, payment_request: PaymentRequest, processed_at: datetime) -> PaymentResponse:
         """Process a payment request."""
         ...
 

@@ -56,9 +56,9 @@ def test_get_payments_summary_returns_actual_storage_data(client):
     # Should return data based on storage, not hardcoded values
     # Initially expect zero counts since no payments stored yet
     assert summary["default"]["totalRequests"] == 0
-    assert summary["default"]["totalAmount"] == "0"
+    assert summary["default"]["totalAmount"] == 0.0
     assert summary["fallback"]["totalRequests"] == 0
-    assert summary["fallback"]["totalAmount"] == "0"
+    assert summary["fallback"]["totalAmount"] == 0.0
 
 
 def test_processed_payments_appear_in_summary(client, valid_payment_data):
@@ -82,7 +82,7 @@ def test_processed_payments_appear_in_summary(client, valid_payment_data):
     assert summary["default"]["totalRequests"] == 1
     assert summary["default"]["totalAmount"] == valid_payment_data["amount"]
     assert summary["fallback"]["totalRequests"] == 0
-    assert summary["fallback"]["totalAmount"] == "0"
+    assert summary["fallback"]["totalAmount"] == 0.0
 
 
 def test_payments_summary_works_without_query_parameters(client):

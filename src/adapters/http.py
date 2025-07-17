@@ -12,20 +12,19 @@ class HttpPaymentProcessor:
     def __init__(self, base_url: str):
         self.base_url = base_url
     
-    async def process_payment(self, payment_request: PaymentRequest) -> PaymentResponse:
+    async def process_payment(self, payment_request: PaymentRequest, processed_at: datetime) -> PaymentResponse:
         """Process a payment request via HTTP."""
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=1.0) as client:
             # Add requestedAt timestamp as required by the payment processors
             request_data = {
                 "correlationId": str(payment_request.correlationId),
                 "amount": float(payment_request.amount),
-                "requestedAt": datetime.now(timezone.utc).isoformat(),
+                "requestedAt": processed_at.isoformat(),
             }
             
             response = await client.post(
                 f"{self.base_url}/payments",
                 json=request_data,
-                timeout=10.0,
             )
             
             if response.status_code >= 500:
@@ -39,7 +38,7 @@ class HttpxHttpClient:
     """HTTP client adapter for httpx."""
     
     def __init__(self):
-        self.client = httpx.AsyncClient()
+        self.client = httpx.AsyncClient(timeout=0.5)
     
     async def get(self, url: str):
         """Make an HTTP GET request."""

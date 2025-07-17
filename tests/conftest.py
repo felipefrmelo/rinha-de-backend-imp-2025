@@ -13,7 +13,7 @@ class MockPaymentProcessor:
         self.falling = falling
         self.id = id
 
-    async def process_payment(self, payment_request: PaymentRequest) -> PaymentResponse:
+    async def process_payment(self, payment_request: PaymentRequest, processed_at) -> PaymentResponse:
         if self.falling:
             raise Exception("HTTP 500 - Internal Server Error")
         return PaymentResponse(message="payment processed successfully by " + self.id)
@@ -105,7 +105,7 @@ def client(payment_service_factory):
 @pytest.fixture
 def valid_payment_data():
     """Create valid payment data for testing"""
-    return {"correlationId": str(uuid4()), "amount": "19.90"}
+    return {"correlationId": str(uuid4()), "amount": 19.90}
 
 
 @pytest.fixture
