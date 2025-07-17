@@ -17,8 +17,8 @@ class HttpPaymentProcessor:
         async with httpx.AsyncClient() as client:
             # Add requestedAt timestamp as required by the payment processors
             request_data = {
-                "correlationId": payment_request.correlationId,
-                "amount": payment_request.amount,
+                "correlationId": str(payment_request.correlationId),
+                "amount": float(payment_request.amount),
                 "requestedAt": datetime.now(timezone.utc).isoformat(),
             }
             

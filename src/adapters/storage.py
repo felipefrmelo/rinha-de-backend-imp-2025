@@ -1,6 +1,5 @@
 from datetime import datetime
 
-from src.domain.protocols import PaymentStorage
 from src.domain.models import PaymentRequest
 
 
