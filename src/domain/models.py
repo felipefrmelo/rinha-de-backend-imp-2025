@@ -16,7 +16,7 @@ class PaymentResponse(BaseModel):
 
 class ProcessorSummary(BaseModel):
     totalRequests: int
-    totalAmount: Decimal
+    totalAmount: float
 
 
 class PaymentsSummary(BaseModel):

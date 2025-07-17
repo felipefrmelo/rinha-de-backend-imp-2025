@@ -47,11 +47,11 @@ def create_app(
         return PaymentsSummary(
             default=ProcessorSummary(
                 totalRequests=summary_data.get("default", {}).get("totalRequests", 0),
-                totalAmount=summary_data.get("default", {}).get("totalAmount", 0),
+                totalAmount=float(summary_data.get("default", {}).get("totalAmount", 0)),
             ),
             fallback=ProcessorSummary(
                 totalRequests=summary_data.get("fallback", {}).get("totalRequests", 0),
-                totalAmount=summary_data.get("fallback", {}).get("totalAmount", 0),
+                totalAmount=float(summary_data.get("fallback", {}).get("totalAmount", 0)),
             ),
         )
 
