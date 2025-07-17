@@ -56,4 +56,6 @@ networks:
   payment-processor:
     external: true
   backend:
-    driver: bridge
+ .claude/             .claude.json         .claude.json.backup  
+felipe@felipe-Nitro-ANV15-51:~
+ nvim .claude/   driver: bridge
