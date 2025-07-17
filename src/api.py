@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import HTMLResponse
+from pyinstrument import Profiler
 
 from src.domain.models import PaymentRequest, PaymentsSummary, ProcessorSummary
 from src.domain.services import PaymentService
@@ -11,6 +13,18 @@ def create_app(
     payment_service: PaymentService,
 ) -> FastAPI:
     app = FastAPI()
+
+    @app.middleware("http")
+    async def profile_request(request: Request, call_next):
+        profiling = request.query_params.get("profile", False)
+        if profiling:
+            profiler = Profiler(interval=0.0001)
+            profiler.start()
+            response = await call_next(request)
+            profiler.stop()
+            return HTMLResponse(profiler.output_html())
+        else:
+            return await call_next(request)
 
     @app.post("/payments")
     async def process_payment(payment_request: PaymentRequest):

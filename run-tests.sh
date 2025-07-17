@@ -62,15 +62,23 @@ echo "🧪 Executando testes de performance com k6..."
 cd rinha-test
 
 # Configurar dashboard do k6
-export K6_WEB_DASHBOARD=false
-export K6_WEB_DASHBOARD_PORT=5665
-export K6_WEB_DASHBOARD_PERIOD=2s
-export K6_WEB_DASHBOARD_OPEN=true
-export K6_WEB_DASHBOARD_EXPORT='report.html'
-export MAX_REQUESTS=500
+ENABLE_K6_DASHBOARD=${ENABLE_K6_DASHBOARD:-false}
+if [ "${ENABLE_K6_DASHBOARD}" = "true" ]; then
+    export K6_WEB_DASHBOARD=true
+    export K6_WEB_DASHBOARD_OPEN=true
+    export K6_WEB_DASHBOARD_PORT=5665
+    export K6_WEB_DASHBOARD_PERIOD=2s
+    export K6_WEB_DASHBOARD_EXPORT='report.html'
 
-echo "📊 Dashboard k6 disponível em: http://localhost:5665"
-echo "📄 Relatório será salvo em: report.html"
+    echo "📄 Relatório será salvo em: report.html"
+    echo "📊 Dashboard k6 disponível em: http://localhost:5665"
+else
+    export K6_WEB_DASHBOARD=false
+    export K6_WEB_DASHBOARD_OPEN=false
+fi
+
+export MAX_REQUESTS=100
+
 
 # Executar teste com configurações otimizadas
 k6 run --quiet rinha.js
