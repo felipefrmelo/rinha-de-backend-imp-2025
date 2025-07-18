@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+@pytest.mark.integration
 def test_fastapi_app_can_be_created():
     """Test that the main FastAPI application can be created and started."""
     from main import app
@@ -12,6 +13,7 @@ def test_fastapi_app_can_be_created():
     assert response.status_code == 200
 
 
+@pytest.mark.integration
 def test_fastapi_app_includes_payment_routes():
     """Test that the main app includes the payment processing routes."""
     from main import app
