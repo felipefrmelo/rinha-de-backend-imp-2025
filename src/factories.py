@@ -10,13 +10,21 @@ from src.domain.health_check import HealthCheckClient
 def create_payment_service() -> PaymentService:
     """Create a PaymentService with real implementations for production use."""
     
-    # Environment-aware Redis configuration
+    # Environment-aware Redis configuration with connection pooling
     redis_host = os.environ.get('REDIS_HOST', 'redis')  # Default to 'redis' for production
     redis_client = redis.Redis(
         host=redis_host,
         port=6379,
         db=0,
-        decode_responses=True
+        decode_responses=True,
+        max_connections=50,
+        connection_pool=redis.ConnectionPool(
+            host=redis_host,
+            port=6379,
+            db=0,
+            decode_responses=True,
+            max_connections=50
+        )
     )
     storage = RedisPaymentStorage(redis_client=redis_client)
     

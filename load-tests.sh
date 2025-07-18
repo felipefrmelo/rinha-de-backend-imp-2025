@@ -44,6 +44,9 @@ docker compose up -d
 echo "⏳ Aguardando backend ficar pronto..."
 sleep 5
 
+echo "🧹 Limpando cache Redis..."
+docker exec rinha-de-backend-imp-2025-redis-1 redis-cli FLUSHALL || echo "⚠️ Aviso: Não foi possível limpar Redis cache"
+
 echo "🏥 Verificando saúde do backend..."
 for i in {1..30}; do
     if curl -f http://localhost:9999/health >/dev/null 2>&1; then

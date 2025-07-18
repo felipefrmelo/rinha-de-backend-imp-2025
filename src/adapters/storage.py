@@ -63,19 +63,7 @@ class RedisPaymentStorage:
         processor_used: str,
         processed_at: datetime,
     ) -> None:
-        """Store a payment request in Redis using fire-and-forget pattern."""
-        # Create background task for storage - don't await it
-        asyncio.create_task(
-            self._store_payment_background(payment_request, processor_used, processed_at)
-        )
-    
-    async def _store_payment_background(
-        self,
-        payment_request: PaymentRequest,
-        processor_used: str,
-        processed_at: datetime,
-    ) -> None:
-        """Background task to store payment in Redis."""
+        """Store a payment request in Redis synchronously for consistency."""
         try:
             await self.redis_client.hset(
                 f"payment:{payment_request.correlationId}",
@@ -87,8 +75,8 @@ class RedisPaymentStorage:
             )
         except Exception as e:
             # Log error but don't propagate to main request flow
-            # In production, you'd want proper logging here
-            print(f"Background storage error: {e}")
+            print(f"Storage error: {e}")
+    
     
     async def get_payments_summary(
         self, from_timestamp: datetime, to_timestamp: datetime
@@ -100,15 +88,23 @@ class RedisPaymentStorage:
         if to_timestamp.tzinfo is None:
             to_timestamp = to_timestamp.replace(tzinfo=timezone.utc)
             
-        # Use SCAN instead of KEYS for better performance in production
-        # KEYS blocks Redis but SCAN doesn't
+        # Use optimized Redis pipeline for batch operations
+        pipeline = self.redis_client.pipeline()
+        
+        # Scan for payment keys
         payment_keys = []
         cursor = 0
         while True:
-            cursor, keys = await self.redis_client.scan(cursor, match="payment:*", count=100)
+            cursor, keys = await self.redis_client.scan(cursor, match="payment:*", count=1000)
             payment_keys.extend(keys)
             if cursor == 0:
                 break
+        
+        # Batch fetch all payment data using pipeline
+        for key in payment_keys:
+            pipeline.hgetall(key)
+        
+        payment_data_list = await pipeline.execute()
         
         default_count = 0
         default_amount = Decimal('0')
@@ -116,24 +112,27 @@ class RedisPaymentStorage:
         fallback_amount = Decimal('0')
         
         # Process each payment
-        for key in payment_keys:
-            payment_data = await self.redis_client.hgetall(key)
+        for payment_data in payment_data_list:
             if not payment_data:
                 continue
                 
-            processed_at = datetime.fromisoformat(payment_data["processed_at"])
-            
-            # Check if payment is in time range
-            if from_timestamp <= processed_at <= to_timestamp:
-                amount = Decimal(payment_data["amount"])
-                processor = payment_data["processor_used"]
+            try:
+                processed_at = datetime.fromisoformat(payment_data["processed_at"])
                 
-                if processor == "default":
-                    default_count += 1
-                    default_amount += amount
-                elif processor == "fallback":
-                    fallback_count += 1
-                    fallback_amount += amount
+                # Check if payment is in time range
+                if from_timestamp <= processed_at <= to_timestamp:
+                    amount = Decimal(payment_data["amount"])
+                    processor = payment_data["processor_used"]
+                    
+                    if processor == "default":
+                        default_count += 1
+                        default_amount += amount
+                    elif processor == "fallback":
+                        fallback_count += 1
+                        fallback_amount += amount
+            except (KeyError, ValueError):
+                # Skip malformed data
+                continue
         
         return {
             "default": {
