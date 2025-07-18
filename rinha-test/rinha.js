@@ -213,6 +213,7 @@ export async function checkPayments() {
   );
   const backendPaymentsSummary = await getBackendPaymentsSummary(from, to);
 
+
   const inconsistencies =
     Math.abs(
       backendPaymentsSummary.default.totalAmount -

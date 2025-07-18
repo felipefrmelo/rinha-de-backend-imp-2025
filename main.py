@@ -1,6 +1,6 @@
-from fastapi import FastAPI
 from src.api import create_app
 from src.factories import create_payment_service
+
 
 # Create the payment service
 payment_service = create_payment_service()
