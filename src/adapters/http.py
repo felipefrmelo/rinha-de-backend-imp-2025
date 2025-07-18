@@ -1,9 +1,21 @@
 from datetime import datetime, timezone
+import logging
 
 import httpx
 
 from src.domain.protocols import PaymentProcessor, PaymentResponse, HttpClient
 from src.domain.models import PaymentRequest
+
+logger = logging.getLogger(__name__)
+
+# Custom exceptions
+class PaymentProcessorError(Exception):
+    """Raised when payment processor communication fails."""
+    pass
+
+class PaymentProcessorTimeoutError(PaymentProcessorError):
+    """Raised when payment processor times out."""
+    pass
 
 
 class HttpPaymentProcessor:
@@ -26,16 +38,30 @@ class HttpPaymentProcessor:
             "requestedAt": processed_at.isoformat(),
         }
         
-        response = await self.client.post(
-            f"{self.base_url}/payments",
-            json=request_data,
-        )
-        
-        if response.status_code >= 500:
-            raise Exception(f"HTTP {response.status_code} - {response.text}")
-        
-        response.raise_for_status()
-        return PaymentResponse(message="Payment processed successfully")
+        try:
+            logger.debug(f"Sending payment {payment_request.correlationId} to {self.base_url}")
+            response = await self.client.post(
+                f"{self.base_url}/payments",
+                json=request_data,
+            )
+            
+            if response.status_code >= 500:
+                logger.error(f"Payment processor server error for {payment_request.correlationId}: {response.status_code} - {response.text}")
+                raise PaymentProcessorError(f"Payment processor server error: {response.status_code}")
+            
+            response.raise_for_status()
+            logger.debug(f"Payment {payment_request.correlationId} processed successfully by {self.base_url}")
+            return PaymentResponse(message="Payment processed successfully")
+            
+        except httpx.TimeoutException as e:
+            logger.error(f"Payment processor timeout for {payment_request.correlationId}: {e}")
+            raise PaymentProcessorTimeoutError(f"Payment processor timeout: {e}") from e
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Payment processor HTTP error for {payment_request.correlationId}: {e}")
+            raise PaymentProcessorError(f"Payment processor HTTP error: {e}") from e
+        except httpx.RequestError as e:
+            logger.error(f"Payment processor request error for {payment_request.correlationId}: {e}")
+            raise PaymentProcessorError(f"Payment processor request error: {e}") from e
     
     async def close(self):
         """Close the HTTP client."""
@@ -53,8 +79,17 @@ class HttpxHttpClient:
     
     async def get(self, url: str):
         """Make an HTTP GET request."""
-        response = await self.client.get(url)
-        return response
+        try:
+            logger.debug(f"Making GET request to {url}")
+            response = await self.client.get(url)
+            logger.debug(f"GET request to {url} completed with status {response.status_code}")
+            return response
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout for GET request to {url}: {e}")
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Request error for GET request to {url}: {e}")
+            raise
     
     async def close(self):
         """Close the HTTP client."""

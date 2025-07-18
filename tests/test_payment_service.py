@@ -166,11 +166,11 @@ async def test_payment_service_fails_when_both_processors_unhealthy(
 
     payment_request = PaymentRequest(correlationId=uuid4(), amount=Decimal("19.90"))
 
-    # Act & Assert - should raise an exception when both processors are unhealthy
+    # Act & Assert - should raise our custom exception when both processors are unhealthy
     with pytest.raises(Exception) as exc_info:
         await service.process_payment(payment_request)
     
-    assert "Both payment processors are currently unavailable" in str(exc_info.value)
+    assert "All payment processors are currently unavailable or too slow" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,7 @@ services:
       resources:
         limits:
           cpus: '0.2'
-          memory: 50M
+          memory: 40M
     networks:
       - payment-processor
       - backend
@@ -28,7 +28,7 @@ services:
       resources:
         limits:
           cpus: '0.3'
-          memory: 160M
+          memory: 60M
     networks:
       - backend
 
@@ -39,6 +39,7 @@ services:
       - "8000"
     environment:
       - PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-critical}
     depends_on:
       - redis
     deploy:
@@ -57,6 +58,7 @@ services:
       - "8000"
     environment:
       - PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-critical}
     depends_on:
       - redis
     deploy:

@@ -17,5 +17,6 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
+
 # Run with uvicorn for production performance
-CMD ["sh", "-c", "uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
+CMD ["sh", "-c", "uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --log-level ${LOG_LEVEL:-info}"]

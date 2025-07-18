@@ -1,8 +1,20 @@
 import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
+import logging
 
 from src.domain.models import PaymentRequest
+
+logger = logging.getLogger(__name__)
+
+# Custom exceptions
+class StorageError(Exception):
+    """Raised when storage operations fail."""
+    pass
+
+class StorageConnectionError(StorageError):
+    """Raised when storage connection fails."""
+    pass
 
 
 class InMemoryPaymentStorage:
@@ -65,6 +77,7 @@ class RedisPaymentStorage:
     ) -> None:
         """Store a payment request in Redis synchronously for consistency."""
         try:
+            logger.debug(f"Storing payment {payment_request.correlationId} processed by {processor_used}")
             await self.redis_client.hset(
                 f"payment:{payment_request.correlationId}",
                 mapping={
@@ -73,9 +86,10 @@ class RedisPaymentStorage:
                     "processed_at": processed_at.isoformat(),
                 }
             )
+            logger.debug(f"Payment {payment_request.correlationId} stored successfully")
         except Exception as e:
-            # Log error but don't propagate to main request flow
-            print(f"Storage error: {e}")
+            logger.error(f"Storage error for payment {payment_request.correlationId}: {e}")
+            raise StorageError(f"Failed to store payment {payment_request.correlationId}: {e}") from e
     
     
     async def get_payments_summary(
@@ -88,23 +102,32 @@ class RedisPaymentStorage:
         if to_timestamp.tzinfo is None:
             to_timestamp = to_timestamp.replace(tzinfo=timezone.utc)
             
-        # Use optimized Redis pipeline for batch operations
-        pipeline = self.redis_client.pipeline()
-        
-        # Scan for payment keys
-        payment_keys = []
-        cursor = 0
-        while True:
-            cursor, keys = await self.redis_client.scan(cursor, match="payment:*", count=1000)
-            payment_keys.extend(keys)
-            if cursor == 0:
-                break
-        
-        # Batch fetch all payment data using pipeline
-        for key in payment_keys:
-            pipeline.hgetall(key)
-        
-        payment_data_list = await pipeline.execute()
+        try:
+            logger.debug(f"Retrieving payments summary from {from_timestamp} to {to_timestamp}")
+            
+            # Use optimized Redis pipeline for batch operations
+            pipeline = self.redis_client.pipeline()
+            
+            # Scan for payment keys
+            payment_keys = []
+            cursor = 0
+            while True:
+                cursor, keys = await self.redis_client.scan(cursor, match="payment:*", count=1000)
+                payment_keys.extend(keys)
+                if cursor == 0:
+                    break
+            
+            logger.debug(f"Found {len(payment_keys)} payment keys")
+            
+            # Batch fetch all payment data using pipeline
+            for key in payment_keys:
+                pipeline.hgetall(key)
+            
+            payment_data_list = await pipeline.execute()
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve payment data from Redis: {e}")
+            raise StorageConnectionError(f"Redis connection error: {e}") from e
         
         default_count = 0
         default_amount = Decimal('0')
@@ -118,6 +141,10 @@ class RedisPaymentStorage:
                 
             try:
                 processed_at = datetime.fromisoformat(payment_data["processed_at"])
+                
+                # Ensure processed_at is timezone-aware (assume UTC if naive)
+                if processed_at.tzinfo is None:
+                    processed_at = processed_at.replace(tzinfo=timezone.utc)
                 
                 # Check if payment is in time range
                 if from_timestamp <= processed_at <= to_timestamp:
@@ -134,7 +161,7 @@ class RedisPaymentStorage:
                 # Skip malformed data
                 continue
         
-        return {
+        result = {
             "default": {
                 "totalRequests": default_count,
                 "totalAmount": float(default_amount)
@@ -144,3 +171,6 @@ class RedisPaymentStorage:
                 "totalAmount": float(fallback_amount)
             }
         }
+        
+        logger.debug(f"Payments summary result: {result}")
+        return result

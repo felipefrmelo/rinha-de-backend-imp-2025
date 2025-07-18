@@ -9,7 +9,7 @@ def test_post_payments_returns_200_on_success(client, valid_payment_data):
 
 
 def test_post_payments_returns_422_on_invalid_input(client):
-    """Test that POST /payments returns 422 on invalid input"""
+    """Test that POST /payments returns 400 for invalid input (handled by our custom validation handler)"""
     # Arrange
     invalid_payment_data = {
         "correlationId": "not-a-uuid",
@@ -20,7 +20,7 @@ def test_post_payments_returns_422_on_invalid_input(client):
     response = client.post("/payments", json=invalid_payment_data)
     
     # Assert
-    assert response.status_code == 422
+    assert response.status_code == 400  # Our custom validation handler returns 400
     assert "detail" in response.json()
 
 
@@ -98,7 +98,7 @@ def test_payments_summary_works_without_query_parameters(client):
 
 
 def test_payments_summary_handles_invalid_datetime_format(client):
-    """Test that GET /payments-summary returns 422 for invalid datetime format (FastAPI validation)"""
+    """Test that GET /payments-summary returns 400 for invalid datetime format (our custom validation handler)"""
     # Arrange
     invalid_from = "invalid-date"
     valid_to = "2024-12-31T23:59:59Z"
@@ -107,7 +107,7 @@ def test_payments_summary_handles_invalid_datetime_format(client):
     response = client.get(f"/payments-summary?from={invalid_from}&to={valid_to}")
     
     # Assert
-    assert response.status_code == 422  # FastAPI returns 422 for validation errors
+    assert response.status_code == 400  # Our custom validation handler returns 400
     assert "detail" in response.json()
 
 
