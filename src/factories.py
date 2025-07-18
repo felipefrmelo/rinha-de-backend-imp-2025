@@ -1,20 +1,29 @@
+import os
+import redis.asyncio as redis
 from src.domain.services import PaymentService, PaymentProvider
-from src.adapters.storage import InMemoryPaymentStorage
+from src.adapters.storage import RedisPaymentStorage
 from src.adapters.http import HttpPaymentProcessor, HttpxHttpClient
-from src.adapters.cache import InMemoryHealthStatusCache
+from src.adapters.cache import CacheProxy
 from src.domain.health_check import HealthCheckClient
 
 
 def create_payment_service() -> PaymentService:
     """Create a PaymentService with real implementations for production use."""
     
-    # Create real implementations for production
-    # For now, we'll use in-memory storage - this should be replaced with a database
-    storage = InMemoryPaymentStorage()
+    # Environment-aware Redis configuration
+    redis_host = os.environ.get('REDIS_HOST', 'redis')  # Default to 'redis' for production
+    redis_client = redis.Redis(
+        host=redis_host,
+        port=6379,
+        db=0,
+        decode_responses=True
+    )
+    storage = RedisPaymentStorage(redis_client=redis_client)
     
     # Create shared HTTP client and cache
     http_client = HttpxHttpClient()
-    cache = InMemoryHealthStatusCache()
+    redis_url = f"redis://{redis_host}:6379"
+    cache = CacheProxy(redis_url)
     
     # Create health check clients for both processors
     default_health_check = HealthCheckClient("http://payment-processor-default:8080", http_client, cache)
