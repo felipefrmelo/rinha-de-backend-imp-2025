@@ -80,7 +80,7 @@ else
     export K6_WEB_DASHBOARD_OPEN=false
 fi
 
-export MAX_REQUESTS=100
+export MAX_REQUESTS=500
 
 
 # Executar teste com configurações otimizadas

@@ -48,25 +48,19 @@ class PaymentService:
         default_health = await self.default.check_health()
         fallback_health = await self.fallback.check_health()
         
-        # Determine processing order based on health and response time
-        providers = []
-        if not default_health.failing:
-            providers.append((self.default, self.default.name, default_health.min_response_time))
-        if not fallback_health.failing:
-            providers.append((self.fallback, self.fallback.name, fallback_health.min_response_time))
+        providers = [(self.default, default_health), (self.fallback, fallback_health)]
+
+        providers = [p  for p in providers if not p[1].failing and p[1].min_response_time < 200]
         
-        # Sort by response time for optimal performance
-        providers.sort(key=lambda x: x[2])
         
         if not providers:
             raise Exception("Both payment processors are currently unavailable")
 
         last_exception = None
-        for provider, provider_name, _ in providers:
+        for provider, _ in providers:
             try:
                 response = await provider.process_payment(payment_request, processed_at)
-                # Store payment synchronously to ensure consistency
-                await self.storage.store_payment(payment_request, provider_name, processed_at)
+                await self.storage.store_payment(payment_request, provider.name, processed_at)
                 return response
             except Exception as exc:
                 last_exception = exc
