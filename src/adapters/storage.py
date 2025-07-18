@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from src.domain.models import PaymentRequest
@@ -94,8 +94,21 @@ class RedisPaymentStorage:
         self, from_timestamp: datetime, to_timestamp: datetime
     ) -> dict:
         """Get payment summary grouped by processor type."""
-        # Get all payment keys
-        payment_keys = await self.redis_client.keys("payment:*")
+        # Ensure timestamps are timezone-aware (assume UTC if naive)
+        if from_timestamp.tzinfo is None:
+            from_timestamp = from_timestamp.replace(tzinfo=timezone.utc)
+        if to_timestamp.tzinfo is None:
+            to_timestamp = to_timestamp.replace(tzinfo=timezone.utc)
+            
+        # Use SCAN instead of KEYS for better performance in production
+        # KEYS blocks Redis but SCAN doesn't
+        payment_keys = []
+        cursor = 0
+        while True:
+            cursor, keys = await self.redis_client.scan(cursor, match="payment:*", count=100)
+            payment_keys.extend(keys)
+            if cursor == 0:
+                break
         
         default_count = 0
         default_amount = Decimal('0')

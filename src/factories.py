@@ -25,9 +25,12 @@ def create_payment_service() -> PaymentService:
     redis_url = f"redis://{redis_host}:6379"
     cache = CacheProxy(redis_url)
     
-    # Create health check clients for both processors
-    default_health_check = HealthCheckClient("http://payment-processor-default:8080", http_client, cache)
-    fallback_health_check = HealthCheckClient("http://payment-processor-fallback:8080", http_client, cache)
+    # Create background health check service for both processors
+    processor_urls = {
+        "default": "http://payment-processor-default:8080",
+        "fallback": "http://payment-processor-fallback:8080"
+    }
+    health_service = HealthCheckClient(processor_urls, http_client, cache)
     
     # Create payment processors
     default_processor = HttpPaymentProcessor("http://payment-processor-default:8080")
@@ -36,13 +39,13 @@ def create_payment_service() -> PaymentService:
     # Create PaymentProvider objects
     default_provider = PaymentProvider(
         processor=default_processor,
-        health_check=default_health_check,
+        health_check=health_service,
         name="default"
     )
     
     fallback_provider = PaymentProvider(
         processor=fallback_processor,
-        health_check=fallback_health_check,
+        health_check=health_service,
         name="fallback"
     )
     

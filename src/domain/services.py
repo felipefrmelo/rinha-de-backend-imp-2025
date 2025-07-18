@@ -16,7 +16,10 @@ class PaymentProvider:
     name: str
 
     async def check_health(self) -> HealthStatus:
-        return await self.health_check.check_health()
+        health_status = await self.health_check.get_health_status(self.name)
+        if health_status is None:
+            return HealthStatus(failing=True, min_response_time=0)
+        return health_status
 
     async def process_payment(self, payment_request: PaymentRequest, processed_at: datetime) -> PaymentResponse:
         return await self.processor.process_payment(payment_request, processed_at)
@@ -43,24 +46,24 @@ class PaymentService:
         processed_at = datetime.now(timezone.utc)
 
         # Check health of both providers concurrently
-        default_health_task = asyncio.create_task(self.default.check_health())
-        fallback_health_task = asyncio.create_task(self.fallback.check_health())
+        default_health = await self.default.check_health()
+        fallback_health = await self.fallback.check_health()
         
-        default_health, fallback_health = await asyncio.gather(
-            default_health_task, fallback_health_task
-        )
-
         if default_health.failing and fallback_health.failing:
             raise Exception("Both payment processors are currently unavailable")
 
-        providers: list[tuple[PaymentProvider, str]] = []
+        providers: list[tuple[PaymentProvider, str, int]] = []
+
         if not default_health.failing:
-            providers.append((self.default, self.default.name))
+            providers.append((self.default, self.default.name, default_health.min_response_time))
+
         if not fallback_health.failing:
-            providers.append((self.fallback, self.fallback.name))
+            providers.append((self.fallback, self.fallback.name, fallback_health.min_response_time))
+
+        providers.sort(key=lambda x: x[2])  # Sort by min_response_time
 
         last_exception = None
-        for provider, provider_name in providers:
+        for provider, provider_name, _ in providers:
             try:
                 response = await provider.process_payment(payment_request, processed_at)
                 await self.storage.store_payment(payment_request, provider_name, processed_at)

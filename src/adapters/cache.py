@@ -63,16 +63,11 @@ class CacheProxy:
     
     def __init__(self, redis_url: str = "redis://localhost:6379"):
         self.redis_cache = RedisHealthStatusCache(redis_url)
-        self.memory_cache = InMemoryHealthStatusCache()
     
     async def get(self, key: str) -> Optional[HealthStatus]:
         """Get cached health status, try Redis first, then memory."""
         result = await self.redis_cache.get(key)
-        if result is not None:
-            return result
-        return await self.memory_cache.get(key)
+        return result
     
     async def set(self, key: str, health_status: HealthStatus, ttl_seconds: int) -> None:
-        """Set health status in both caches."""
         await self.redis_cache.set(key, health_status, ttl_seconds)
-        await self.memory_cache.set(key, health_status, ttl_seconds)

@@ -64,8 +64,17 @@ class MockHealthCheckClient(HealthCheckClient):
     def __init__(self, health_status: HealthStatus | None = None):
         self.health_status = health_status or HealthStatus(failing=False, min_response_time=100)
 
+    async def get_health_status(self, processor_name: str) -> HealthStatus:
+        return self.health_status
+    
     async def check_health(self) -> HealthStatus:
         return self.health_status
+    
+    async def start(self):
+        pass
+    
+    async def stop(self):
+        pass
 
 
 @pytest.fixture

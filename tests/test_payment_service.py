@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal
 from uuid import uuid4
 
@@ -69,6 +70,9 @@ async def test_payment_service_stores_successful_payment(
 
     # Act
     result = await service.process_payment(payment_request)
+    
+    # Allow fire-and-forget storage task to complete
+    await asyncio.sleep(0.01)
 
     # Assert
     assert result is not None
@@ -97,6 +101,9 @@ async def test_payment_service_stores_fallback_payment(
 
     # Act
     result = await service.process_payment(payment_request)
+    
+    # Allow fire-and-forget storage task to complete
+    await asyncio.sleep(0.01)
 
     # Assert
     assert result is not None
@@ -126,6 +133,9 @@ async def test_payment_service_routes_to_fallback_when_health_check_shows_defaul
 
     # Act
     result = await service.process_payment(payment_request)
+    
+    # Allow fire-and-forget storage task to complete
+    await asyncio.sleep(0.01)
 
     # Assert - should route to fallback due to health check
     assert result.message == "payment processed successfully by fallback-processor"
@@ -186,6 +196,9 @@ async def test_payment_service_optimizes_for_lowest_fees_by_preferring_default(
 
     # Act
     result = await service.process_payment(payment_request)
+    
+    # Allow fire-and-forget storage task to complete
+    await asyncio.sleep(0.01)
 
     # Assert - should prefer default processor (lower fees) even if fallback has better performance
     assert result.message == "payment processed successfully by default-processor"
@@ -219,6 +232,9 @@ async def test_payment_service_maintains_fee_optimization_under_load(
         payment_request = PaymentRequest(correlationId=uuid4(), amount=Decimal("10.00"))
         result = await service.process_payment(payment_request)
         assert result.message == "payment processed successfully by default-processor"
+
+    # Allow fire-and-forget storage tasks to complete
+    await asyncio.sleep(0.05)
 
     # Assert - all payments should use default processor for fee optimization
     assert len(mock_storage.stored_payments) == 5

@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated
 
@@ -12,7 +13,17 @@ from src.domain.services import PaymentService
 def create_app(
     payment_service: PaymentService,
 ) -> FastAPI:
-    app = FastAPI()
+    
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # Start the background health monitoring
+        health_service = payment_service.default.health_check
+        await health_service.start()
+        yield
+        # Stop the background health monitoring
+        await health_service.stop()
+    
+    app = FastAPI(lifespan=lifespan)
 
     @app.middleware("http")
     async def profile_request(request: Request, call_next):
