@@ -1,15 +1,19 @@
 from src.config.logging import setup_logging
 from src.api import create_app
-from src.factories import create_payment_service
+from src.factories import create_payment_service, create_queue_manager, create_background_worker
 
 # Setup logging first
 setup_logging()
 
-# Create the payment service
+# Create the payment service and queue manager
 payment_service = create_payment_service()
+queue_manager = create_queue_manager()
 
-# Create the FastAPI app with the payment service
-app = create_app(payment_service)
+# Create the background worker
+background_worker = create_background_worker(payment_service, queue_manager)
+
+# Create the FastAPI app with all components
+app = create_app(payment_service, queue_manager, background_worker)
 
 # Add health check endpoint
 @app.get("/health")

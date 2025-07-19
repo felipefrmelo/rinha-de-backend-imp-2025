@@ -13,12 +13,16 @@ from pyinstrument import Profiler
 
 from src.domain.models import PaymentRequest, PaymentsSummary, ProcessorSummary
 from src.domain.services import PaymentService
+from src.domain.queue_manager import QueueManager
+from src.domain.background_worker import BackgroundWorker
 
 logger = logging.getLogger(__name__)
 
 
 def create_app(
     payment_service: PaymentService,
+    queue_manager: QueueManager,
+    background_worker: BackgroundWorker,
 ) -> FastAPI:
     
     @asynccontextmanager
@@ -26,7 +30,15 @@ def create_app(
         # Start the background health monitoring
         health_service = payment_service.default.health_check
         await health_service.start()
+        
+        background_worker.start()
+        logger.info("Background payment worker started")
+        
         yield
+        
+        await background_worker.stop()
+        logger.info("Background payment worker stopped")
+            
         # Stop the background health monitoring
         await health_service.stop()
     
@@ -73,8 +85,14 @@ def create_app(
     @app.post("/payments")
     async def process_payment(payment_request: PaymentRequest):
         try:
-            result = await payment_service.process_payment(payment_request)
-            return result
+                await queue_manager.add_payment_to_queue(payment_request)
+                return JSONResponse(
+                    status_code=202,
+                    content={
+                        "message": "Payment accepted for processing",
+                        "correlationId": str(payment_request.correlationId)
+                    }
+                )
         except Exception as e:
             logger.error(f"Payment processing failed for {payment_request.correlationId}: {str(e)}")
             raise HTTPException(
