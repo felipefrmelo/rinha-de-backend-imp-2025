@@ -39,7 +39,7 @@ services:
       - "8000"
     environment:
       - PORT=8000
-      - LOG_LEVEL=${LOG_LEVEL:-critical}
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
     depends_on:
       - redis
     deploy:
