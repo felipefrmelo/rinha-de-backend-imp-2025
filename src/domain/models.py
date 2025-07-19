@@ -1,13 +1,22 @@
 from decimal import Decimal
 from typing import Annotated
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
 
 class PaymentRequest(BaseModel):
+    """Client payment request - what comes from API"""
     correlationId: UUID
     amount: Annotated[Decimal, Field(gt=Decimal("0.00"))]
+
+
+class PaymentProcessRequest(BaseModel):
+    """Internal payment processing request - what goes to queue/processors"""
+    correlationId: UUID
+    amount: Annotated[Decimal, Field(gt=Decimal("0.00"))]
+    requestedAt: datetime
 
 
 class PaymentResponse(BaseModel):

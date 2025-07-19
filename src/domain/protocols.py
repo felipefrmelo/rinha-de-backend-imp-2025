@@ -51,3 +51,13 @@ class HealthStatusCache(Protocol):
     ) -> None:
         """Set health status in cache with TTL."""
         ...
+
+class QueueClient(Protocol):
+    async def enqueue(self, queue_name: str, message: dict) -> None:
+        """Enqueue a message to a specified queue."""
+        ...
+
+    async def dequeue(self, queue_name: str, timeout_ms: int = 1000) -> Optional[dict]:
+        """Dequeue a message from a specified queue."""
+        ...
+
