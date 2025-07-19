@@ -1,11 +1,12 @@
-def test_post_payments_returns_200_on_success(client, valid_payment_data):
-    """Test that POST /payments returns 200 on successful payment processing"""
+def test_post_payments_returns_202_for_queue_processing(client, valid_payment_data):
+    """Test that POST /payments returns 202 Accepted for async queue processing"""
     # Act
     response = client.post("/payments", json=valid_payment_data)
     
     # Assert
-    assert response.status_code == 200
+    assert response.status_code == 202  # Accepted for async processing
     assert "message" in response.json()
+    assert "correlationId" in response.json()  # Should return the correlation ID for tracking
 
 
 def test_post_payments_returns_422_on_invalid_input(client):
@@ -61,15 +62,15 @@ def test_get_payments_summary_returns_actual_storage_data(client):
     assert summary["fallback"]["totalAmount"] == 0.0
 
 
-def test_processed_payments_appear_in_summary(client, valid_payment_data):
-    """Test that processed payments appear correctly in the summary"""
-    # Arrange - Use a very wide date range to ensure the payment is included
+def test_queued_payments_do_not_immediately_appear_in_summary(client, valid_payment_data):
+    """Test that queued payments do not immediately appear in summary (they need to be processed by workers)"""
+    # Arrange - Use a very wide date range to ensure any payment would be included
     from_timestamp = "2020-01-01T00:00:00Z"
     to_timestamp = "2030-12-31T23:59:59Z"
     
-    # Act - Process a payment
+    # Act - Queue a payment (it's not processed yet, just queued)
     payment_response = client.post("/payments", json=valid_payment_data)
-    assert payment_response.status_code == 200
+    assert payment_response.status_code == 202  # Accepted for async processing
     
     # Act - Get summary
     summary_response = client.get(f"/payments-summary?from={from_timestamp}&to={to_timestamp}")
@@ -78,9 +79,9 @@ def test_processed_payments_appear_in_summary(client, valid_payment_data):
     assert summary_response.status_code == 200
     summary = summary_response.json()
     
-    # Payment should be counted in default processor
-    assert summary["default"]["totalRequests"] == 1
-    assert summary["default"]["totalAmount"] == valid_payment_data["amount"]
+    # Payment should NOT be counted yet since it's only queued, not processed
+    assert summary["default"]["totalRequests"] == 0
+    assert summary["default"]["totalAmount"] == 0.0
     assert summary["fallback"]["totalRequests"] == 0
     assert summary["fallback"]["totalAmount"] == 0.0
 

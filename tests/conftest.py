@@ -1,11 +1,13 @@
 from uuid import uuid4
 
+from fastapi.params import Query
 import pytest
 from fastapi.testclient import TestClient
 
 from src.api import create_app
 from src.domain.models import PaymentRequest, PaymentResponse, HealthStatus
 from src.domain.health_check import HealthCheckClient
+from src.domain.queue_manager import QueueManager
 
 
 class MockPaymentProcessor:
@@ -101,12 +103,30 @@ def mock_fallback_processor():
     return MockPaymentProcessor(id="fallback-processor")
 
 
+class MockQueueClient:
+    def __init__(self):
+        self.queue_data = []
+
+    async def enqueue(self, queue_name: str, message: dict) -> None:
+        self.queue_data.append(message)
+
+    async def dequeue(self, queue_name: str, timeout_ms: int = 1000) -> dict | None:
+        if self.queue_data:
+            return self.queue_data.pop(0)
+        return None
+
+
+
 @pytest.fixture
 def client(payment_service_factory):
-    """Create a test client with mock processor"""
+    """Create a test client with mock processor and queue manager"""
     payment_service = payment_service_factory()
+    queue_manager = QueueManager(MockQueueClient())
+    # Don't start background worker in tests to avoid interference
     app = create_app(
         payment_service=payment_service,
+        queue_manager=queue_manager,
+        background_worker=None,
     )
     return TestClient(app)
 
