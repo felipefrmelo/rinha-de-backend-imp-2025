@@ -1,0 +1,65 @@
+services:
+  # Load balancer (nginx)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "9999:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app1
+      - app2
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 40M
+    networks:
+      - payment-processor
+      - backend
+
+  # Redis for storage
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly no --maxmemory 50mb --maxmemory-policy allkeys-lru --tcp-keepalive 60 --timeout 300
+    volumes:
+      - redis-data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 60M
+    networks:
+      - backend
+
+  # FastAPI application instance 1
+  app1: &app
+    build: .
+    expose:
+      - "8000"
+    environment:
+      - PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-critical}
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 125M
+    networks:
+      - payment-processor
+      - backend
+
+  # FastAPI application instance 2  
+  app2:
+    <<: *app
+
+networks:
+  payment-processor:
+    external: true
+  backend:
+    driver: bridge
+
+volumes:
+  redis-data:
