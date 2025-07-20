@@ -9,7 +9,7 @@ docker compose down
 
 echo "🔄 Parando containers dos payment processors..."
 cd payment-processor
-docker compose down
+docker compose down --remove-orphans
 cd ..
 
 echo "📦 Rebuilding containers do backend..."
