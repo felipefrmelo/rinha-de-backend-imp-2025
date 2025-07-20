@@ -27,6 +27,7 @@ struct PaymentRequest {
 
 #[derive(Debug, Deserialize)]
 struct PaymentResponse {
+    #[allow(dead_code)]
     message: String,
 }
 
