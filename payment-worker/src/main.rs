@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use pgmq::PGMQueue;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sqlx::{Pool, Postgres};
 use tokio::time::sleep;
 use std::{error::Error, time::Duration};
 
@@ -71,15 +72,39 @@ struct PaymentWorker {
     queue: PGMQueue,
     queue_name: String,
     processor: PaymentProcessor,
+    db_pool: Pool<Postgres>,
 }
 
 impl PaymentWorker {
-    pub fn new(queue: PGMQueue, queue_name: String) -> Self {
+    pub fn new(queue: PGMQueue, queue_name: String, db_pool: Pool<Postgres>) -> Self {
         Self {
             queue,
             queue_name,
             processor: PaymentProcessor::new(),
+            db_pool,
         }
+    }
+
+    async fn save_processed_payment(
+        &self,
+        message: &PaymentMessage,
+        processor: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        sqlx::query(
+            r#"
+            INSERT INTO processed_payments (correlation_id, amount, requested_at, processor)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (correlation_id) DO NOTHING
+            "#,
+        )
+        .bind(&message.correlation_id)
+        .bind(message.amount)
+        .bind(message.requested_at)
+        .bind(processor)
+        .execute(&self.db_pool)
+        .await?;
+
+        Ok(())
     }
 
     pub async fn process_payments(&self) -> Result<(), Box<dyn Error>> {
@@ -104,6 +129,12 @@ impl PaymentWorker {
                     match self.processor.process_payment(&message.message).await {
                         Ok(response) => {
                             println!("Payment processed successfully: {response:?}");
+                            
+                            // Save processed payment to database
+                            if let Err(e) = self.save_processed_payment(&message.message, "default").await {
+                                println!("Failed to save processed payment: {e}");
+                            }
+                            
                             // Archive message after successful processing
                             self.queue.archive(&self.queue_name, message.msg_id).await?;
                         }
@@ -130,16 +161,23 @@ impl PaymentWorker {
 async fn main() -> Result<(), Box<dyn Error>> {
     println!("Starting payment worker...");
 
-    let queue_url = std::env::var("DATABASE_URL")
+    let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:password@postgres:5432/payments".to_string());
 
-    let queue = PGMQueue::new(queue_url).await?;
+    // Create database connection pool
+    let db_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
+
+
+    let queue = PGMQueue::new(database_url).await?;
     let queue_name = "payment_queue";
 
     queue.create(queue_name).await?;
 
-    println!("Connected to PGMQ, listening for messages...");
+    println!("Connected to database and PGMQ, listening for messages...");
 
-    let worker = PaymentWorker::new(queue, queue_name.to_string());
+    let worker = PaymentWorker::new(queue, queue_name.to_string(), db_pool);
     worker.process_payments().await
 }
