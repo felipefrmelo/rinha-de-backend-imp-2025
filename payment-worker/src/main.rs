@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use tokio::time::sleep;
 use std::{error::Error, time::Duration};
+use tracing::{info, error, debug, instrument};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PaymentMessage {
@@ -42,6 +44,7 @@ impl PaymentProcessor {
         }
     }
 
+    #[instrument(skip(self), fields(correlation_id = %message.correlation_id, amount = message.amount))]
     pub async fn process_payment(
         &self,
         message: &PaymentMessage,
@@ -85,6 +88,7 @@ impl PaymentWorker {
         }
     }
 
+    #[instrument(skip(self), fields(correlation_id = %message.correlation_id, processor = processor))]
     async fn save_processed_payment(
         &self,
         message: &PaymentMessage,
@@ -107,8 +111,9 @@ impl PaymentWorker {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn process_payments(&self) -> Result<(), Box<dyn Error>> {
-        println!("Starting payment processing...");
+        info!("Starting payment processing...");
 
         // Message polling loop
         //
@@ -120,34 +125,42 @@ impl PaymentWorker {
                 .await?
             {
                 Some(message) => {
-                    println!("Received payment message: {:?}", message.message);
-                    println!(
-                        "Processing payment for correlation ID: {}",
-                        message.message.correlation_id
+                    let span = tracing::info_span!("process_message", 
+                        correlation_id = %message.message.correlation_id,
+                        msg_id = message.msg_id
                     );
+                    let _enter = span.enter();
+                    
+                    debug!("Received payment message: {:?}", message.message);
+                    info!("Processing payment for correlation ID: {}", message.message.correlation_id);
 
                     match self.processor.process_payment(&message.message).await {
                         Ok(response) => {
-                            println!("Payment processed successfully: {response:?}");
+                            info!("Payment processed successfully: {response:?}");
                             
                             // Save processed payment to database
                             if let Err(e) = self.save_processed_payment(&message.message, "default").await {
-                                println!("Failed to save processed payment: {e}");
+                                error!("Failed to save processed payment: {e}");
                             }
                             
                             // Archive message after successful processing
-                            self.queue.archive(&self.queue_name, message.msg_id).await?;
+                            if let Err(e) = self.queue.archive(&self.queue_name, message.msg_id).await {
+                                error!("Failed to archive message: {e}");
+                            }
                         }
                         Err(e) => {
-                            println!("Failed to process payment: {e}");
+                            error!("Failed to process payment: {e}");
                             // Archive message even on failure to avoid infinite retry
-                            self.queue.archive(&self.queue_name, message.msg_id).await?;
+                            if let Err(e) = self.queue.archive(&self.queue_name, message.msg_id).await {
+                                error!("Failed to archive failed message: {e}");
+                            }
                         }
                     }
                 }
 
                 None => {
                     // No messages available, wait a bit
+                    debug!("No messages available, waiting...");
                     sleep(Duration::from_millis(100)).await;
                 }
             }
@@ -159,7 +172,16 @@ impl PaymentWorker {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("Starting payment worker...");
+    // Initialize tracing
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "payment_worker=debug,reqwest=info,sqlx=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    info!("Starting payment worker...");
 
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:password@postgres:5432/payments".to_string());
@@ -176,7 +198,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     queue.create(queue_name).await?;
 
-    println!("Connected to database and PGMQ, listening for messages...");
+    info!("Connected to database and PGMQ, listening for messages...");
 
     let worker = PaymentWorker::new(queue, queue_name.to_string(), db_pool);
     worker.process_payments().await

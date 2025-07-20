@@ -1,3 +1,9 @@
 [workspace]
 members = [ "api","payment-worker"]
 resolver = "2"
+
+[profile.dev]
+debug = true
+
+[profile.release]
+debug = 1
