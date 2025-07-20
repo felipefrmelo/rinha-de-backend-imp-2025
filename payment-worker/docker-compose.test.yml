@@ -1,0 +1,9 @@
+services:
+  test-postgres:
+    image: ghcr.io/pgmq/pg16-pgmq:latest
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
