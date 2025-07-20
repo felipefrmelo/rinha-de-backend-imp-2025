@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use pgmq::PGMQueue;
+use rsmq_async::{Rsmq, RsmqConnection, RsmqOptions};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
@@ -69,14 +69,14 @@ impl PaymentProcessor {
 }
 
 struct PaymentWorker {
-    queue: PGMQueue,
+    queue: Rsmq,
     queue_name: String,
     processor: PaymentProcessor,
     db_pool: Pool<Postgres>,
 }
 
 impl PaymentWorker {
-    pub fn new(queue: PGMQueue, queue_name: String, db_pool: Pool<Postgres>) -> Self {
+    pub fn new(queue: Rsmq, queue_name: String, db_pool: Pool<Postgres>) -> Self {
         Self {
             queue,
             queue_name,
@@ -107,41 +107,43 @@ impl PaymentWorker {
         Ok(())
     }
 
-    pub async fn process_payments(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn process_payments(&mut self) -> Result<(), Box<dyn Error>> {
         println!("Starting payment processing...");
 
-        // Message polling loop
-        //
-        let visibility_timeout_seconds: i32 = 30;
         loop {
-            match self
-                .queue
-                .read::<PaymentMessage>(&self.queue_name, Some(visibility_timeout_seconds))
-                .await?
-            {
+            match self.queue.receive_message::<String>(&self.queue_name, Some(Duration::from_secs(30))).await? {
                 Some(message) => {
-                    println!("Received payment message: {:?}", message.message);
+                    let payment_message: PaymentMessage = match serde_json::from_str(&message.message) {
+                        Ok(msg) => msg,
+                        Err(e) => {
+                            println!("Failed to deserialize message: {e}");
+                            self.queue.delete_message(&self.queue_name, &message.id).await?;
+                            continue;
+                        }
+                    };
+                    
+                    println!("Received payment message: {:?}", payment_message);
                     println!(
                         "Processing payment for correlation ID: {}",
-                        message.message.correlation_id
+                        payment_message.correlation_id
                     );
 
-                    match self.processor.process_payment(&message.message).await {
+                    match self.processor.process_payment(&payment_message).await {
                         Ok(response) => {
                             println!("Payment processed successfully: {response:?}");
                             
                             // Save processed payment to database
-                            if let Err(e) = self.save_processed_payment(&message.message, "default").await {
+                            if let Err(e) = self.save_processed_payment(&payment_message, "default").await {
                                 println!("Failed to save processed payment: {e}");
                             }
                             
-                            // Archive message after successful processing
-                            self.queue.archive(&self.queue_name, message.msg_id).await?;
+                            // Delete message after successful processing
+                            self.queue.delete_message(&self.queue_name, &message.id).await?;
                         }
                         Err(e) => {
                             println!("Failed to process payment: {e}");
-                            // Archive message even on failure to avoid infinite retry
-                            self.queue.archive(&self.queue_name, message.msg_id).await?;
+                            // Delete message even on failure to avoid infinite retry
+                            self.queue.delete_message(&self.queue_name, &message.id).await?;
                         }
                     }
                 }
@@ -163,6 +165,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:password@postgres:5432/payments".to_string());
+    
+    let redis_url = std::env::var("REDIS_URL")
+        .unwrap_or_else(|_| "redis://redis:6379".to_string());
 
     // Create database connection pool
     let db_pool = sqlx::postgres::PgPoolOptions::new()
@@ -170,14 +175,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .connect(&database_url)
         .await?;
 
-
-    let queue = PGMQueue::new_with_pool(db_pool.clone()).await;
+    let mut queue = Rsmq::new(RsmqOptions {
+        host: "redis".to_string(),
+        port: 6379,
+        ..Default::default()
+    }).await?;
     let queue_name = "payment_queue";
 
-    queue.create(queue_name).await?;
+    // Ensure queue exists - create if doesn't exist
+    match queue.create_queue(queue_name, None, None, None).await {
+        Ok(_) => println!("Payment queue created successfully"),
+        Err(e) => {
+            if e.to_string().contains("already exists") {
+                println!("Payment queue already exists");
+            } else {
+                println!("Failed to create payment queue: {}", e);
+                return Err(e.into());
+            }
+        }
+    }
 
-    println!("Connected to database and PGMQ, listening for messages...");
+    println!("Connected to database and Redis queue, listening for messages...");
 
-    let worker = PaymentWorker::new(queue, queue_name.to_string(), db_pool);
+    let mut worker = PaymentWorker::new(queue, queue_name.to_string(), db_pool);
     worker.process_payments().await
 }

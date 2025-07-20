@@ -1,12 +1,12 @@
 use axum::{
-    Router,
-    extract::{Json, Query, State},
+    extract::{Query, State},
     http::StatusCode,
-    response::Json as ResponseJson,
+    response::Json,
     routing::{get, post},
+    Router,
 };
 use chrono::{DateTime, Utc};
-use pgmq::PGMQueue;
+use rsmq_async::{Rsmq, RsmqConnection, RsmqOptions};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use std::{collections::HashMap, error::Error};
@@ -56,30 +56,37 @@ pub struct PaymentsSummaryResponse {
 #[derive(Clone)]
 struct AppState {
     db_pool: PgPool,
-    queue: PGMQueue,
+    queue: Rsmq,
 }
 
 async fn create_payment(
     State(app_state): State<AppState>,
-    Json(payload): Json<PaymentRequest>,
-) -> Result<ResponseJson<PaymentResponse>, StatusCode> {
-    let requested_at = Utc::now();
+    axum::Json(payload): axum::Json<PaymentRequest>,
+) -> StatusCode {
+    let mut queue = app_state.queue.clone();
 
-    let message = PaymentMessage {
-        correlation_id: payload.correlation_id.to_string(),
-        amount: payload.amount,
-        requested_at,
-    };
+    tokio::spawn(async move {
+        let requested_at = Utc::now();
+        let message = PaymentMessage {
+            correlation_id: payload.correlation_id.to_string(),
+            amount: payload.amount,
+            requested_at,
+        };
+        let message_json = match serde_json::to_string(&message) {
+            Ok(json) => json,
+            Err(_) => return,
+        };
 
-    match app_state.queue.send("payment_queue", &message).await {
-        Ok(_) => {
-            let response = PaymentResponse {
-                status: "accepted".to_string(),
-            };
-            Ok(ResponseJson(response))
+        if let Err(e) = queue
+            .send_message("payment_queue", message_json.as_str(), None)
+            .await
+        {
+            eprintln!("Erro ao enviar mensagem para a fila: {}", e);
         }
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-    }
+    });
+
+    // Retorna imediatamente
+    StatusCode::ACCEPTED
 }
 
 async fn health() -> StatusCode {
@@ -89,7 +96,7 @@ async fn health() -> StatusCode {
 async fn get_payments_summary(
     State(app_state): State<AppState>,
     Query(params): Query<PaymentsSummaryQuery>,
-) -> Result<ResponseJson<PaymentsSummaryResponse>, StatusCode> {
+) -> Result<Json<PaymentsSummaryResponse>, StatusCode> {
     let rows = match (params.from, params.to) {
         (Some(from), Some(to)) => {
             sqlx::query("
@@ -175,7 +182,7 @@ async fn get_payments_summary(
         fallback: fallback_stats,
     };
 
-    Ok(ResponseJson(response))
+    Ok(Json(response))
 }
 
 #[tokio::main]
@@ -186,9 +193,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|_| "postgres://postgres:password@postgres:5432/payments".to_string());
 
     let db_pool = PgPool::connect(&database_url).await?;
-    let queue = PGMQueue::new_with_pool(db_pool.clone()).await;
+
+    let mut queue = Rsmq::new(RsmqOptions {
+        host: "redis".to_string(),
+        port: 6379,
+        ..Default::default()
+    })
+    .await?;
+
+    // Ensure queue exists - create if doesn't exist
+    match queue.create_queue("payment_queue", None, None, None).await {
+        Ok(_) => println!("Payment queue created successfully"),
+        Err(e) => {
+            if e.to_string().contains("already exists") {
+                println!("Payment queue already exists");
+            } else {
+                println!("Failed to create payment queue: {}", e);
+                return Err(e.into());
+            }
+        }
+    }
 
     let app_state = AppState { db_pool, queue };
+
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+
+    let host = format!("0.0.0.0:{port}");
+    println!("Server running on http://{host}");
 
     let app = Router::new()
         .route("/payments", post(create_payment))
@@ -196,9 +227,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/health", get(health))
         .with_state(app_state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    println!("Server running on http://0.0.0.0:3000");
-
+    let listener = tokio::net::TcpListener::bind(&host).await?;
     axum::serve(listener, app).await?;
 
     Ok(())
