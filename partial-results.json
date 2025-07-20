@@ -1,13 +1,13 @@
 {
   "participante": "anonymous",
-  "total_liquido": 128549.9374226989,
-  "total_bruto": 121947.2,
-  "total_taxas": 6097.360000000001,
+  "total_liquido": 182155.50973560062,
+  "total_bruto": 168513.2,
+  "total_taxas": 8425.660000000002,
   "descricao": "'total_liquido' é sua pontuação final. Equivale ao seu lucro. Fórmula: total_liquido + (total_liquido * p99.bonus) - (total_liquido * multa.porcentagem)",
   "p99": {
-    "valor": "5.518724660000005ms",
-    "bonus": 0.10962550679999991,
-    "max_requests": "500",
+    "valor": "4.1075305ms",
+    "bonus": 0.13784939,
+    "max_requests": 500,
     "descricao": "Fórmula para o bônus: max((11 - p99.valor) * 0.02, 0)"
   },
   "multa": {
@@ -19,20 +19,20 @@
     }
   },
   "lag": {
-    "num_pagamentos_total": 6128,
-    "num_pagamentos_solicitados": 15201,
-    "lag": 9073,
+    "num_pagamentos_total": 8468,
+    "num_pagamentos_solicitados": 15202,
+    "lag": 6734,
     "descricao": "Lag é a diferença entre a quantidade de solicitações de pagamentos vs o que foi realmente computado pelo backend. Mostra a perda de pagamentos possivelmente por estarem enfileirados."
   },
   "pagamentos_solicitados": {
-    "qtd_sucesso": 15201,
+    "qtd_sucesso": 15202,
     "qtd_falha": 0,
     "descricao": "'qtd_sucesso' foram requests bem sucedidos para 'POST /payments' e 'qtd_falha' os requests com erro."
   },
   "pagamentos_realizados_default": {
-    "total_bruto": 121947.2,
-    "num_pagamentos": 6128,
-    "total_taxas": 6097.360000000001,
+    "total_bruto": 168513.2,
+    "num_pagamentos": 8468,
+    "total_taxas": 8425.660000000002,
     "descricao": "Informações do backend sobre solicitações de pagamento para o Payment Processor Default."
   },
   "pagamentos_realizados_fallback": {

@@ -25,7 +25,7 @@ export const options = {
   thresholds: {
     //http_req_failed: [{ threshold: "rate < 0.01", abortOnFail: false }],
     //payments_inconsistency: ["count == 0"]
-    //http_req_duration: ['p(99) < 50'],
+    http_req_duration: ['p(99) < 5'],
     //payments_count: ['count > 3500'],
   },
   scenarios: {

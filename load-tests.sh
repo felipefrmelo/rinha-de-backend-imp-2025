@@ -5,12 +5,16 @@
 set -e  # Exit on any error
 
 echo "🔄 Parando containers do backend..."
-docker compose down
+docker compose down --volumes
 
-echo "🔄 Parando containers dos payment processors..."
-cd payment-processor
-docker compose down --remove-orphans
-cd ..
+
+echo "🧹 Limpando cache Redis..."
+docker exec rinha-de-backend-imp-2025-redis-1 redis-cli FLUSHALL || echo "⚠️ Aviso: Não foi possível limpar Redis cache"
+
+#echo "🔄 Parando containers dos payment processors..."
+#cd payment-processor
+#docker compose down
+#cd ..
 
 echo "📦 Rebuilding containers do backend..."
 docker compose build
@@ -44,8 +48,6 @@ docker compose up -d
 echo "⏳ Aguardando backend ficar pronto..."
 sleep 5
 
-echo "🧹 Limpando cache Redis..."
-docker exec rinha-de-backend-imp-2025-redis-1 redis-cli FLUSHALL || echo "⚠️ Aviso: Não foi possível limpar Redis cache"
 
 echo "🏥 Verificando saúde do backend..."
 for i in {1..30}; do
@@ -84,7 +86,7 @@ export MAX_REQUESTS=500
 
 
 # Executar teste com configurações otimizadas
-k6 run --quiet rinha.js
+k6 run rinha.js
 
 echo "✅ Testes concluídos!"
 echo "📊 Verifique os resultados acima para métricas de performance"
