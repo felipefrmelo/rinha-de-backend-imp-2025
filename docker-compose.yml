@@ -1,4 +1,48 @@
 services:
+  # Redis for Queue
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 40M
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # PostgreSQL for persistent data
+  postgres:
+    image: ghcr.io/pgmq/pg16-pgmq:latest
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 80M
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payments"]
+      interval: 2s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
   # API instances
   app1: &app
     build:
@@ -6,14 +50,16 @@ services:
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=postgres://postgres:password@postgres:5432/payments
+      - REDIS_URL=redis://redis:6379
       - PORT=3000
     depends_on:
-      - postgres
+      redis:
+        condition: service_healthy
     deploy:
       resources:
         limits:
           cpus: '0.2'
-          memory: 70M
+          memory: 50M
     networks:
       - backend
 
@@ -33,32 +79,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.15'
-          memory: 30M
+          cpus: '0.20'
+          memory: 60M
     networks:
       - backend
-
-
-  # PostgreSQL for PGMQ
-  postgres:
-    image: ghcr.io/pgmq/pg16-pgmq:latest
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: payments
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    deploy:
-      resources:
-        limits:
-          cpus: '0.6'
-          memory: 120M
-    networks:
-      - backend
-
 
   # Payment Worker
   payment-worker1: &worker
@@ -67,13 +91,17 @@ services:
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=postgres://postgres:password@postgres:5432/payments
+      - REDIS_URL=redis://redis:6379
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     deploy:
       resources:
         limits:
-          cpus: '0.87'
-          memory: 20M
+          cpus: '0.20'
+          memory: 35M
     networks:
       - payment-processor
       - backend
@@ -81,11 +109,6 @@ services:
   payment-worker2:
         <<: *worker
 
-  payment-worker3:
-        <<: *worker
-
-  payment-worker4:
-        <<: *worker
 
 networks:
   payment-processor:
@@ -93,5 +116,3 @@ networks:
   backend:
     driver: bridge
 
-volumes:
-  postgres-data:
