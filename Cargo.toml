@@ -1,0 +1,3 @@
+[workspace]
+members = [ "api","payment-worker"]
+resolver = "2"

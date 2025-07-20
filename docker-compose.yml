@@ -1,0 +1,97 @@
+services:
+  # API instances
+  app1: &app
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/payments
+      - PORT=3000
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 70M
+    networks:
+      - backend
+
+  app2:
+    <<: *app
+
+  # Load balancer (nginx)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "9999:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app1
+      - app2
+    deploy:
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 30M
+    networks:
+      - backend
+
+
+  # PostgreSQL for PGMQ
+  postgres:
+    image: ghcr.io/pgmq/pg16-pgmq:latest
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    deploy:
+      resources:
+        limits:
+          cpus: '0.6'
+          memory: 120M
+    networks:
+      - backend
+
+
+  # Payment Worker
+  payment-worker1: &worker
+    build:
+      context: ./payment-worker
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgres://postgres:password@postgres:5432/payments
+    depends_on:
+      - postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '0.87'
+          memory: 20M
+    networks:
+      - payment-processor
+      - backend
+
+  payment-worker2:
+        <<: *worker
+
+  payment-worker3:
+        <<: *worker
+
+  payment-worker4:
+        <<: *worker
+
+networks:
+  payment-processor:
+    external: true
+  backend:
+    driver: bridge
+
+volumes:
+  postgres-data:
