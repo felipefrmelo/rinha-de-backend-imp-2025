@@ -1,5 +1,5 @@
 [workspace]
-members = ["api", "payment-worker"]
+members = ["api", "payment-worker", "health-checker"]
 resolver = "2"
 
 

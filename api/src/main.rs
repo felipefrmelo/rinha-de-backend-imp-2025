@@ -81,7 +81,7 @@ async fn create_payment(
             .send_message("payment_queue", message_json.as_str(), None)
             .await
         {
-            eprintln!("Erro ao enviar mensagem para a fila: {}", e);
+            eprintln!("Erro ao enviar mensagem para a fila: {e}");
         }
     });
 
@@ -201,18 +201,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     })
     .await?;
 
-    // Ensure queue exists - create if doesn't exist
-    match queue.create_queue("payment_queue", None, None, None).await {
-        Ok(_) => println!("Payment queue created successfully"),
-        Err(e) => {
-            if e.to_string().contains("already exists") {
-                println!("Payment queue already exists");
-            } else {
-                println!("Failed to create payment queue: {}", e);
-                return Err(e.into());
-            }
-        }
-    }
+    queue
+        .create_queue("payment_queue", None, None, None)
+        .await?;
 
     let app_state = AppState { db_pool, queue };
 
