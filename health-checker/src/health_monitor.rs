@@ -1,4 +1,5 @@
 use crate::redis_client::{RedisHealthClient, ProcessorHealthStatus};
+use crate::config::HealthCheckerConfig;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -14,26 +15,25 @@ struct ServiceHealthResponse {
 pub struct HealthMonitor {
     redis_client: RedisHealthClient,
     http_client: Client,
-    default_processor_url: String,
-    fallback_processor_url: String,
+    config: HealthCheckerConfig,
 }
 
 impl HealthMonitor {
-    pub fn new(redis_url: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let redis_client = RedisHealthClient::new(redis_url)?;
+    pub fn new(config: HealthCheckerConfig) -> Result<Self, Box<dyn std::error::Error>> {
+        let redis_client = RedisHealthClient::new(&config.redis_url, config.health_status_ttl, config.rate_limit_ttl)?;
         let http_client = Client::builder()
-            .timeout(Duration::from_secs(10))
+            .timeout(config.http_timeout)
             .build()?;
-        
-        let default_processor_url = "http://payment-processor-default:8080".to_string();
-        let fallback_processor_url = "http://payment-processor-fallback:8080".to_string();
 
         Ok(Self {
             redis_client,
             http_client,
-            default_processor_url,
-            fallback_processor_url,
+            config,
         })
+    }
+
+    pub fn get_cycle_interval(&self) -> Duration {
+        self.config.health_check_cycle_interval
     }
 
     pub async fn check_processor_health(
@@ -85,7 +85,7 @@ impl HealthMonitor {
                 eprintln!("Failed to connect to {processor_name} for health check: {e}");
                 
                 // Store unhealthy status on connection failure
-                let health_status = ProcessorHealthStatus::new(true, u64::MAX);
+                let health_status = ProcessorHealthStatus::new(true, self.config.failed_response_time_value);
                 if let Err(redis_err) = self.redis_client.set_processor_health(processor_name, &health_status).await {
                     eprintln!("Failed to update Redis with unhealthy status for {processor_name}: {redis_err}");
                 }
@@ -97,13 +97,13 @@ impl HealthMonitor {
 
     pub async fn monitor_all_processors(&self) -> Result<(), Box<dyn std::error::Error>> {
         // Check default processor
-        self.check_processor_health("default", &self.default_processor_url).await?;
+        self.check_processor_health("default", &self.config.default_processor_url).await?;
         
         // Small delay between checks to avoid overwhelming
-        time::sleep(Duration::from_millis(100)).await;
+        time::sleep(self.config.inter_check_delay).await;
         
         // Check fallback processor
-        self.check_processor_health("fallback", &self.fallback_processor_url).await?;
+        self.check_processor_health("fallback", &self.config.fallback_processor_url).await?;
         
         Ok(())
     }

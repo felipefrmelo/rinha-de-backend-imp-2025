@@ -18,12 +18,18 @@ impl ProcessorHealthStatus {
 
 pub struct RedisHealthClient {
     client: redis::Client,
+    health_status_ttl: u64,
+    rate_limit_ttl: u64,
 }
 
 impl RedisHealthClient {
-    pub fn new(redis_url: &str) -> Result<Self, redis::RedisError> {
+    pub fn new(redis_url: &str, health_status_ttl: u64, rate_limit_ttl: u64) -> Result<Self, redis::RedisError> {
         let client = redis::Client::open(redis_url)?;
-        Ok(Self { client })
+        Ok(Self { 
+            client,
+            health_status_ttl,
+            rate_limit_ttl,
+        })
     }
 
     pub async fn set_processor_health(
@@ -41,7 +47,7 @@ impl RedisHealthClient {
             ))
         })?;
 
-        let _: () = conn.set_ex(&key, json_data, 30).await?; // TTL of 30 seconds
+        let _: () = conn.set_ex(&key, json_data, self.health_status_ttl).await?;
         Ok(())
     }
 
@@ -82,8 +88,8 @@ impl RedisHealthClient {
         let mut conn = self.client.get_multiplexed_tokio_connection().await?;
         let rate_limit_key = format!("rate_limit:{processor_name}");
         
-        // Set rate limit key with 5-second TTL
-        let _: () = conn.set_ex(&rate_limit_key, "1", 5).await?;
+        // Set rate limit key with configured TTL
+        let _: () = conn.set_ex(&rate_limit_key, "1", self.rate_limit_ttl).await?;
         Ok(())
     }
 }

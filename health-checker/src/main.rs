@@ -1,15 +1,15 @@
-use health_checker::HealthMonitor;
-use std::time::Duration;
+use health_checker::{HealthMonitor, HealthCheckerConfig};
 use tokio::time;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting Payment Processor Health Checker...");
     
-    // Redis connection
-    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://redis:6379".to_string());
+    // Load configuration
+    let config = HealthCheckerConfig::from_env()?;
+    config.log_configuration();
     
-    let health_monitor = HealthMonitor::new(&redis_url)?;
+    let health_monitor = HealthMonitor::new(config)?;
     
     println!("Health checker initialized. Starting monitoring loop...");
     
@@ -23,8 +23,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         
-        // Wait 4 seconds between cycles to respect the 5-second rate limit
-        // This ensures we don't hit the rate limit while being responsive
-        time::sleep(Duration::from_secs(4)).await;
+        time::sleep(health_monitor.get_cycle_interval()).await;
     }
 }
