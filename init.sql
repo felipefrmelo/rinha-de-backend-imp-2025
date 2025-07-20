@@ -12,3 +12,8 @@ CREATE TABLE IF NOT EXISTS processed_payments (
     requested_at TIMESTAMPTZ NOT NULL,
     processor VARCHAR(50) NOT NULL
 );
+
+-- Create indexes for better query performance
+CREATE INDEX IF NOT EXISTS idx_processed_payments_requested_at ON processed_payments(requested_at);
+CREATE INDEX IF NOT EXISTS idx_processed_payments_processor ON processed_payments(processor);
+CREATE INDEX IF NOT EXISTS idx_processed_payments_processor_requested_at ON processed_payments(processor, requested_at);

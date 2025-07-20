@@ -12,8 +12,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.2'
-          memory: 70M
+          cpus: '0.15'
+          memory: 60M
     networks:
       - backend
 
@@ -33,8 +33,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.15'
-          memory: 30M
+          cpus: '0.1'
+          memory: 25M
     networks:
       - backend
 
@@ -54,8 +54,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.6'
-          memory: 120M
+          cpus: '0.5'
+          memory: 100M
     networks:
       - backend
 
@@ -72,7 +72,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.87'
+          cpus: '0.2'
           memory: 20M
     networks:
       - payment-processor
@@ -82,9 +82,6 @@ services:
         <<: *worker
 
   payment-worker3:
-        <<: *worker
-
-  payment-worker4:
         <<: *worker
 
 networks:
