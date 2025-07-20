@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use std::{collections::HashMap, error::Error};
 use uuid::Uuid;
+use tower_http::trace::TraceLayer;
+use tracing::{info, error, instrument};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PaymentMessage {
@@ -59,6 +62,7 @@ struct AppState {
     queue: PGMQueue,
 }
 
+#[instrument(skip(app_state), fields(correlation_id = %payload.correlation_id, amount = payload.amount))]
 async fn create_payment(
     State(app_state): State<AppState>,
     Json(payload): Json<PaymentRequest>,
@@ -73,12 +77,16 @@ async fn create_payment(
 
     match app_state.queue.send("payment_queue", &message).await {
         Ok(_) => {
+            info!("Payment queued successfully");
             let response = PaymentResponse {
                 status: "accepted".to_string(),
             };
             Ok(ResponseJson(response))
         }
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => {
+            error!("Failed to queue payment: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }
 
@@ -86,6 +94,7 @@ async fn health() -> StatusCode {
     StatusCode::OK
 }
 
+#[instrument(skip(app_state))]
 async fn get_payments_summary(
     State(app_state): State<AppState>,
     Query(params): Query<PaymentsSummaryQuery>,
@@ -137,8 +146,14 @@ async fn get_payments_summary(
     };
 
     let rows = match rows {
-        Ok(rows) => rows,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(rows) => {
+            info!("Successfully queried payments summary, {} rows returned", rows.len());
+            rows
+        },
+        Err(e) => {
+            error!("Failed to query payments summary: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     };
 
     let mut stats: HashMap<String, PaymentTypeStats> = HashMap::new();
@@ -180,7 +195,16 @@ async fn get_payments_summary(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("Starting payment API server...");
+    // Initialize tracing
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "api=debug,tower_http=debug,axum=trace".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    info!("Starting payment API server...");
 
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:password@postgres:5432/payments".to_string());
@@ -194,10 +218,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/payments", post(create_payment))
         .route("/payments-summary", get(get_payments_summary))
         .route("/health", get(health))
+        .layer(TraceLayer::new_for_http())
         .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    println!("Server running on http://0.0.0.0:3000");
+    info!("Server running on http://0.0.0.0:3000");
 
     axum::serve(listener, app).await?;
 

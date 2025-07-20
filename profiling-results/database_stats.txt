@@ -1,0 +1,9 @@
+ schemaname |     tablename      |    attname     | n_distinct  | correlation  
+------------+--------------------+----------------+-------------+--------------
+ public     | processed_payments | id             |          -1 | 0.0102437865
+ public     | processed_payments | correlation_id |          -1 | -0.035783354
+ public     | processed_payments | amount         |           2 |    0.9785714
+ public     | processed_payments | requested_at   | -0.98207885 |   0.71516097
+ public     | processed_payments | processor      |           1 |            1
+(5 rows)
+

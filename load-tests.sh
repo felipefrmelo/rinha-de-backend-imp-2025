@@ -5,11 +5,11 @@
 set -e  # Exit on any error
 
 echo "🔄 Parando containers do backend..."
-docker compose down
+docker compose down --volumes --remove-orphans
 
 echo "🔄 Parando containers dos payment processors..."
 cd payment-processor
-docker compose down --remove-orphans
+docker compose down
 cd ..
 
 echo "📦 Rebuilding containers do backend..."
