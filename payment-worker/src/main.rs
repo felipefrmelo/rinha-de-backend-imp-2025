@@ -171,7 +171,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
 
 
-    let queue = PGMQueue::new(database_url).await?;
+    let queue = PGMQueue::new_with_pool(db_pool.clone()).await;
     let queue_name = "payment_queue";
 
     queue.create(queue_name).await?;

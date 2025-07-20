@@ -1,16 +1,15 @@
 use axum::{
-    extract::{Json, Query},
+    Router,
+    extract::{Json, Query, State},
     http::StatusCode,
     response::Json as ResponseJson,
     routing::{get, post},
-    Router,
 };
 use chrono::{DateTime, Utc};
 use pgmq::PGMQueue;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use std::{collections::HashMap, error::Error};
-use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,26 +53,25 @@ pub struct PaymentsSummaryResponse {
     pub fallback: PaymentTypeStats,
 }
 
+#[derive(Clone)]
+struct AppState {
+    db_pool: PgPool,
+    queue: PGMQueue,
+}
+
 async fn create_payment(
+    State(app_state): State<AppState>,
     Json(payload): Json<PaymentRequest>,
 ) -> Result<ResponseJson<PaymentResponse>, StatusCode> {
-    let queue_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/payments".to_string());
-
-    let queue = match PGMQueue::new(queue_url).await {
-        Ok(q) => q,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
-    };
-
     let requested_at = Utc::now();
-    
+
     let message = PaymentMessage {
         correlation_id: payload.correlation_id.to_string(),
         amount: payload.amount,
         requested_at,
     };
 
-    match queue.send("payment_queue", &message).await {
+    match app_state.queue.send("payment_queue", &message).await {
         Ok(_) => {
             let response = PaymentResponse {
                 status: "accepted".to_string(),
@@ -84,48 +82,61 @@ async fn create_payment(
     }
 }
 
+async fn health() -> StatusCode {
+    StatusCode::OK
+}
+
 async fn get_payments_summary(
+    State(app_state): State<AppState>,
     Query(params): Query<PaymentsSummaryQuery>,
 ) -> Result<ResponseJson<PaymentsSummaryResponse>, StatusCode> {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:password@localhost:5432/payments".to_string());
-
-    let pool = match PgPool::connect(&database_url).await {
-        Ok(pool) => pool,
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    let rows = match (params.from, params.to) {
+        (Some(from), Some(to)) => {
+            sqlx::query("
+                SELECT processor, COUNT(*) as total_requests, COALESCE(SUM(amount), 0) as total_amount
+                FROM processed_payments 
+                WHERE requested_at >= $1 AND requested_at <= $2
+                GROUP BY processor
+            ")
+            .bind(from)
+            .bind(to)
+            .fetch_all(&app_state.db_pool)
+            .await
+        },
+        (Some(from), None) => {
+            sqlx::query("
+                SELECT processor, COUNT(*) as total_requests, COALESCE(SUM(amount), 0) as total_amount
+                FROM processed_payments 
+                WHERE requested_at >= $1
+                GROUP BY processor
+            ")
+            .bind(from)
+            .fetch_all(&app_state.db_pool)
+            .await
+        },
+        (None, Some(to)) => {
+            sqlx::query("
+                SELECT processor, COUNT(*) as total_requests, COALESCE(SUM(amount), 0) as total_amount
+                FROM processed_payments 
+                WHERE requested_at <= $1
+                GROUP BY processor
+            ")
+            .bind(to)
+            .fetch_all(&app_state.db_pool)
+            .await
+        },
+        (None, None) => {
+            sqlx::query("
+                SELECT processor, COUNT(*) as total_requests, COALESCE(SUM(amount), 0) as total_amount
+                FROM processed_payments 
+                GROUP BY processor
+            ")
+            .fetch_all(&app_state.db_pool)
+            .await
+        }
     };
 
-    let mut query = "
-        SELECT 
-            processor, 
-            COUNT(*) as total_requests, 
-            COALESCE(SUM(amount), 0) as total_amount
-        FROM processed_payments 
-        WHERE 1=1
-    ".to_string();
-
-    let mut bind_values = Vec::new();
-    let mut param_count = 1;
-
-    if let Some(from) = params.from {
-        query.push_str(&format!(" AND processed_at >= ${param_count}"));
-        bind_values.push(from);
-        param_count += 1;
-    }
-
-    if let Some(to) = params.to {
-        query.push_str(&format!(" AND processed_at <= ${param_count}"));
-        bind_values.push(to);
-    }
-
-    query.push_str(" GROUP BY processor");
-
-    let mut sqlx_query = sqlx::query(&query);
-    for value in bind_values {
-        sqlx_query = sqlx_query.bind(value);
-    }
-
-    let rows = match sqlx_query.fetch_all(&pool).await {
+    let rows = match rows {
         Ok(rows) => rows,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
@@ -135,12 +146,18 @@ async fn get_payments_summary(
     for row in rows {
         let processor: String = row.get("processor");
         let total_requests: i64 = row.get("total_requests");
-        let total_amount: f64 = row.get::<sqlx::types::BigDecimal, _>("total_amount").to_string().parse().unwrap_or(0.0);
-        
-        stats.insert(processor, PaymentTypeStats {
-            total_requests,
-            total_amount,
-        });
+        let total_amount: f64 = row
+            .try_get::<sqlx::types::BigDecimal, _>("total_amount")
+            .map(|bd| bd.to_string().parse().unwrap_or(0.0))
+            .unwrap_or(0.0);
+
+        stats.insert(
+            processor,
+            PaymentTypeStats {
+                total_requests,
+                total_amount,
+            },
+        );
     }
 
     let default_stats = stats.get("default").cloned().unwrap_or(PaymentTypeStats {
@@ -165,15 +182,24 @@ async fn get_payments_summary(
 async fn main() -> Result<(), Box<dyn Error>> {
     println!("Starting payment API server...");
 
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:password@postgres:5432/payments".to_string());
+
+    let db_pool = PgPool::connect(&database_url).await?;
+    let queue = PGMQueue::new_with_pool(db_pool.clone()).await;
+
+    let app_state = AppState { db_pool, queue };
+
     let app = Router::new()
         .route("/payments", post(create_payment))
         .route("/payments-summary", get(get_payments_summary))
-        .layer(CorsLayer::permissive());
+        .route("/health", get(health))
+        .with_state(app_state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
     println!("Server running on http://0.0.0.0:3000");
-    
+
     axum::serve(listener, app).await?;
-    
+
     Ok(())
 }
