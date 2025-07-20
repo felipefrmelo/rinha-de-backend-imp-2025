@@ -4,7 +4,14 @@
 # Ensure postgres is running: docker-compose up -d postgres
 
 # Test the /payments endpoint with a valid UUID
-curl -X POST http://localhost:3000/payments \
+# Generate a random UUID (use uuidgen if available, else fallback to Python)
+if command -v uuidgen > /dev/null; then
+  UUID=$(uuidgen)
+else
+  UUID=$(python3 -c 'import uuid; print(uuid.uuid4())')
+fi
+
+curl -X POST http://localhost:9999/payments \
   -H 'Content-Type: application/json' \
-  -d '{"amount": 100.0, "correlationId": "124e4567-e89b-12d3-a456-426614174000"}'
+  -d '{"amount": 100.0, "correlationId": "'$UUID'"}'
 
