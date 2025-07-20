@@ -12,8 +12,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.4'
-          memory: 100M
+          cpus: '0.2'
+          memory: 70M
     networks:
       - backend
 
@@ -33,8 +33,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.2'
-          memory: 40M
+          cpus: '0.15'
+          memory: 30M
     networks:
       - backend
 
@@ -54,14 +54,14 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.2'
-          memory: 50M
+          cpus: '0.6'
+          memory: 120M
     networks:
       - backend
 
 
   # Payment Worker
-  payment-worker:
+  payment-worker1: &worker
     build:
       context: ./payment-worker
       dockerfile: Dockerfile
@@ -72,11 +72,20 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.1'
+          cpus: '0.87'
           memory: 20M
     networks:
       - payment-processor
       - backend
+
+  payment-worker2:
+        <<: *worker
+
+  payment-worker3:
+        <<: *worker
+
+  payment-worker4:
+        <<: *worker
 
 networks:
   payment-processor:
