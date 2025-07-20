@@ -15,3 +15,4 @@ curl -X POST http://localhost:9999/payments \
   -H 'Content-Type: application/json' \
   -d '{"amount": 100.0, "correlationId": "'$UUID'"}'
 
+#docker stats  --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}" $(docker ps --filter "name=rinha" -q)
