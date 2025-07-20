@@ -1,1 +1,0 @@
-std::option::Option<dashmap::mapref::one::Ref<'_, std::string::String, (HealthStatus, std::time::Instant)>>
