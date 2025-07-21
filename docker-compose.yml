@@ -4,11 +4,6 @@ services:
     image: redis:8-alpine
     ports:
       - "6379:6379"
-    deploy:
-      resources:
-        limits:
-          cpus: '0.2'
-          memory: 40M
     networks:
       - backend
     healthcheck:
@@ -20,7 +15,7 @@ services:
 
   # PostgreSQL for persistent data
   postgres:
-    image: ghcr.io/pgmq/pg16-pgmq:latest
+    image: postgres:17-alpine
     ports:
       - "5432:5432"
     environment:
@@ -28,20 +23,15 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
     volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    deploy:
-      resources:
-        limits:
-          cpus: '0.3'
-          memory: 80M
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql
     networks:
       - backend
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d payments"]
-      interval: 2s
+      interval: 5s  # Reduzido de 2s para economizar CPU
       timeout: 3s
-      retries: 5
-      start_period: 10s
+      retries: 3    # Reduzido de 5
+      start_period: 20s  # Aumentado pa
 
   # API instances
   app1: &app
@@ -55,11 +45,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '0.2'
-          memory: 50M
     networks:
       - backend
 
@@ -92,16 +77,23 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:password@postgres:5432/payments
       - REDIS_URL=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - QUEUE_NAME=payment_queue
+      - WORKER_CONCURRENCY=4
+      - DATABASE_MAX_CONNECTIONS=10
+      - HTTP_CLIENT_TIMEOUT_SECS=6
+      - QUEUE_RECEIVE_TIMEOUT_SECS=6
+      - POLL_SLEEP_MILLIS=200
+      - ERROR_SLEEP_MILLIS=200
+      - PROCESS_SLEEP_MILLIS=1
+      - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
+      - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '0.20'
-          memory: 35M
     networks:
       - payment-processor
       - backend
@@ -125,7 +117,7 @@ services:
       resources:
         limits:
           cpus: '0.10'
-          memory: 30M
+          memory: 10M
     networks:
       - backend
       - payment-processor
