@@ -52,7 +52,7 @@ impl HealthCheckerConfig {
                 .unwrap_or_else(|_| "http://payment-processor-fallback:8080".to_string()),
             
             failed_response_time_value: std::env::var("FAILED_RESPONSE_TIME_VALUE")
-                .unwrap_or_else(|_| u64::MAX.to_string())
+                .unwrap_or_else(|_| "1000".to_string())
                 .parse::<u64>()?,
         };
 

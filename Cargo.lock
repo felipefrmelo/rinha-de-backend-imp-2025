@@ -1289,6 +1289,7 @@ name = "payment-worker"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "health-checker",
  "redis 0.24.0",
  "reqwest",
  "rsmq_async",

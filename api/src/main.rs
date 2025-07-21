@@ -203,7 +203,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     queue
         .create_queue("payment_queue", None, None, None)
-        .await?;
+        .await.unwrap_or_else(|e| {
+            if e.to_string().contains("already exists") {
+                println!("Payment queue already exists");
+            } else {
+                panic!("Failed to create payment queue: {e}");
+            }
+        });
 
     let app_state = AppState { db_pool, queue };
 

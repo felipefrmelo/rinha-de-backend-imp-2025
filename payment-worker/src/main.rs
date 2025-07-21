@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use tokio::time::sleep;
 use std::{error::Error, time::Duration};
+use health_checker::RedisHealthClient;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PaymentMessage {
@@ -32,36 +33,76 @@ struct PaymentResponse {
 struct PaymentProcessor {
     client: Client,
     default_url: String,
+    fallback_url: String,
+    health_client: RedisHealthClient,
 }
 
 impl PaymentProcessor {
-    pub fn new() -> Self {
+    pub fn new(health_client: RedisHealthClient) -> Self {
         Self {
             client: Client::new(),
             default_url: "http://payment-processor-default:8080".to_string(),
+            fallback_url: "http://payment-processor-fallback:8080".to_string(),
+            health_client,
+        }
+    }
+
+    async fn get_best_processor(&self) -> Result<(&str, &str), Box<dyn Error>> {
+        let default_health = self.health_client.get_processor_health("default").await?;
+        let fallback_health = self.health_client.get_processor_health("fallback").await?;
+
+        match (default_health, fallback_health) {
+            (Some(default), Some(fallback)) => {
+                if !default.failing {
+                    Ok(("default", &self.default_url))
+                } else if !fallback.failing {
+                    Ok(("fallback", &self.fallback_url))
+                } else {
+                    Ok(("default", &self.default_url))
+                }
+            }
+            (Some(default), None) => {
+                if !default.failing {
+                    Ok(("default", &self.default_url))
+                } else {
+                    Ok(("fallback", &self.fallback_url))
+                }
+            }
+            (None, Some(fallback)) => {
+                if !fallback.failing {
+                    Ok(("fallback", &self.fallback_url))
+                } else {
+                    Ok(("default", &self.default_url))
+                }
+            }
+            (None, None) => {
+                Ok(("default", &self.default_url))
+            }
         }
     }
 
     pub async fn process_payment(
         &self,
         message: &PaymentMessage,
-    ) -> Result<PaymentResponse, Box<dyn Error>> {
+    ) -> Result<(PaymentResponse, String), Box<dyn Error>> {
         let payment_request = PaymentRequest {
             correlation_id: message.correlation_id.clone(),
             amount: message.amount,
             requested_at: message.requested_at.to_rfc3339(),
         };
 
+        let (processor_name, processor_url) = self.get_best_processor().await?;
+
         let response = self
             .client
-            .post(format!("{}/payments", self.default_url))
+            .post(format!("{}/payments", processor_url))
             .json(&payment_request)
             .send()
             .await?;
 
         if response.status().is_success() {
             let payment_response: PaymentResponse = response.json().await?;
-            Ok(payment_response)
+            Ok((payment_response, processor_name.to_string()))
         } else {
             Err(format!("Payment failed with status: {}", response.status()).into())
         }
@@ -76,11 +117,11 @@ struct PaymentWorker {
 }
 
 impl PaymentWorker {
-    pub fn new(queue: Rsmq, queue_name: String, db_pool: Pool<Postgres>) -> Self {
+    pub fn new(queue: Rsmq, queue_name: String, db_pool: Pool<Postgres>, health_client: RedisHealthClient) -> Self {
         Self {
             queue,
             queue_name,
-            processor: PaymentProcessor::new(),
+            processor: PaymentProcessor::new(health_client),
             db_pool,
         }
     }
@@ -129,11 +170,11 @@ impl PaymentWorker {
                     );
 
                     match self.processor.process_payment(&payment_message).await {
-                        Ok(response) => {
+                        Ok((response, processor_used)) => {
                             println!("Payment processed successfully: {response:?}");
                             
                             // Save processed payment to database
-                            if let Err(e) = self.save_processed_payment(&payment_message, "default").await {
+                            if let Err(e) = self.save_processed_payment(&payment_message, &processor_used).await {
                                 println!("Failed to save processed payment: {e}");
                             }
                             
@@ -195,8 +236,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
+    // Create health client for querying processor health
+    let health_client = RedisHealthClient::new(&redis_url, 30, 5)?;
+
     println!("Connected to database and Redis queue, listening for messages...");
 
-    let mut worker = PaymentWorker::new(queue, queue_name.to_string(), db_pool);
+    let mut worker = PaymentWorker::new(queue, queue_name.to_string(), db_pool, health_client);
     worker.process_payments().await
 }
