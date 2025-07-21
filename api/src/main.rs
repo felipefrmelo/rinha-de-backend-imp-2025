@@ -192,7 +192,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:password@postgres:5432/payments".to_string());
 
-    let db_pool = PgPool::connect(&database_url).await?;
+    let db_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&database_url)
+        .await?;
 
     let mut queue = Rsmq::new(RsmqOptions {
         host: "redis".to_string(),

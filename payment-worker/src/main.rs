@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use tokio::time::sleep;
 use std::{error::Error, time::Duration};
-use health_checker::RedisHealthClient;
+use health_checker::{HealthMonitor,HealthCheckerConfig};
+
+mod config;
+use config::PaymentWorkerConfig;
+
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PaymentMessage {
@@ -34,57 +38,42 @@ struct PaymentProcessor {
     client: Client,
     default_url: String,
     fallback_url: String,
-    health_client: RedisHealthClient,
+    health_monitor: HealthMonitor,
 }
 
 impl PaymentProcessor {
-    pub fn new(health_client: RedisHealthClient) -> Self {
+    pub fn new(health_monitor: HealthMonitor, config: &PaymentWorkerConfig) -> Self {
         Self {
-            client: Client::new(),
-            default_url: "http://payment-processor-default:8080".to_string(),
-            fallback_url: "http://payment-processor-fallback:8080".to_string(),
-            health_client,
+            client: Client::builder()
+                .timeout(Duration::from_secs(config.http_client_timeout_secs))
+                .build()
+                .expect("Failed to create HTTP client"),
+            default_url: config.payment_processor_default_url.clone(),
+            fallback_url: config.payment_processor_fallback_url.clone(),
+            health_monitor,
         }
     }
 
-    async fn get_best_processor(&self) -> Result<(&str, &str), Box<dyn Error>> {
-        let default_health = self.health_client.get_processor_health("default").await?;
-        let fallback_health = self.health_client.get_processor_health("fallback").await?;
+    async fn get_best_processor(&self) -> Result<(&str, &str), Box<dyn Error + Send + Sync>> {
+        let processor = self.health_monitor
+            .get_best_processor()
+            .await?;
 
-        match (default_health, fallback_health) {
-            (Some(default), Some(fallback)) => {
-                if !default.failing {
-                    Ok(("default", &self.default_url))
-                } else if !fallback.failing {
-                    Ok(("fallback", &self.fallback_url))
-                } else {
-                    Ok(("default", &self.default_url))
-                }
-            }
-            (Some(default), None) => {
-                if !default.failing {
-                    Ok(("default", &self.default_url))
-                } else {
-                    Ok(("fallback", &self.fallback_url))
-                }
-            }
-            (None, Some(fallback)) => {
-                if !fallback.failing {
-                    Ok(("fallback", &self.fallback_url))
-                } else {
-                    Ok(("default", &self.default_url))
-                }
-            }
-            (None, None) => {
-                Ok(("default", &self.default_url))
-            }
+        if processor == "default" {
+            Ok(("default", &self.default_url))
+        } else if processor == "fallback" {
+            Ok(("fallback", &self.fallback_url))
+        } else {
+            Err(format!("Unknown processor: {}", processor).into())
         }
+
+
     }
 
     pub async fn process_payment(
         &self,
         message: &PaymentMessage,
-    ) -> Result<(PaymentResponse, String), Box<dyn Error>> {
+    ) -> Result<(PaymentResponse, String), Box<dyn Error + Send + Sync>> {
         let payment_request = PaymentRequest {
             correlation_id: message.correlation_id.clone(),
             amount: message.amount,
@@ -109,20 +98,25 @@ impl PaymentProcessor {
     }
 }
 
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 struct PaymentWorker {
-    queue: Rsmq,
+    queue: Arc<Mutex<Rsmq>>,
     queue_name: String,
-    processor: PaymentProcessor,
+    processor: Arc<PaymentProcessor>,
     db_pool: Pool<Postgres>,
+    config: PaymentWorkerConfig,
 }
 
 impl PaymentWorker {
-    pub fn new(queue: Rsmq, queue_name: String, db_pool: Pool<Postgres>, health_client: RedisHealthClient) -> Self {
+    pub fn new(queue: Rsmq, queue_name: String, db_pool: Pool<Postgres>, processor: Arc<PaymentProcessor>, config: PaymentWorkerConfig) -> Self {
         Self {
-            queue,
+            queue: Arc::new(Mutex::new(queue)),
             queue_name,
-            processor: PaymentProcessor::new(health_client),
+            processor,
             db_pool,
+            config,
         }
     }
 
@@ -130,7 +124,7 @@ impl PaymentWorker {
         &self,
         message: &PaymentMessage,
         processor: &str,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query(
             r#"
             INSERT INTO processed_payments (correlation_id, amount, requested_at, processor)
@@ -148,50 +142,48 @@ impl PaymentWorker {
         Ok(())
     }
 
-    pub async fn process_payments(&mut self) -> Result<(), Box<dyn Error>> {
-        println!("Starting payment processing...");
-
+    pub async fn worker_loop(self: Arc<Self>) {
+        println!("Worker loop started");
         loop {
-            match self.queue.receive_message::<String>(&self.queue_name, Some(Duration::from_secs(30))).await? {
-                Some(message) => {
+            println!("Polling for messages...");
+            let mut queue = self.queue.lock().await;
+            match queue.receive_message::<String>(&self.queue_name, Some(Duration::from_secs(self.config.queue_receive_timeout_secs))).await {
+                Ok(Some(message)) => {
                     let payment_message: PaymentMessage = match serde_json::from_str(&message.message) {
                         Ok(msg) => msg,
                         Err(e) => {
                             println!("Failed to deserialize message: {e}");
-                            self.queue.delete_message(&self.queue_name, &message.id).await?;
+                            let _ = queue.delete_message(&self.queue_name, &message.id).await;
                             continue;
                         }
                     };
-                    
-                    println!("Received payment message: {:?}", payment_message);
-                    println!(
-                        "Processing payment for correlation ID: {}",
-                        payment_message.correlation_id
-                    );
+                    println!("Received payment message: {payment_message:?}");
+                    println!("Processing payment for correlation ID: {}", payment_message.correlation_id);
 
                     match self.processor.process_payment(&payment_message).await {
                         Ok((response, processor_used)) => {
                             println!("Payment processed successfully: {response:?}");
-                            
-                            // Save processed payment to database
                             if let Err(e) = self.save_processed_payment(&payment_message, &processor_used).await {
                                 println!("Failed to save processed payment: {e}");
+                            } else {
+                                println!("Payment saved to database successfully");
                             }
-                            
-                            // Delete message after successful processing
-                            self.queue.delete_message(&self.queue_name, &message.id).await?;
+                            let _ = queue.delete_message(&self.queue_name, &message.id).await;
+                            println!("Message deleted from queue, continuing to next message...");
+                            sleep(Duration::from_millis(self.config.process_sleep_millis)).await;
                         }
                         Err(e) => {
                             println!("Failed to process payment: {e}");
-                            // Delete message even on failure to avoid infinite retry
-                            self.queue.delete_message(&self.queue_name, &message.id).await?;
                         }
                     }
                 }
-
-                None => {
-                    // No messages available, wait a bit
-                    sleep(Duration::from_millis(100)).await;
+                Ok(None) => {
+                    println!("No messages available, waiting...");
+                    sleep(Duration::from_millis(self.config.poll_sleep_millis)).await;
+                }
+                Err(e) => {
+                    println!("Error receiving message: {e}");
+                    sleep(Duration::from_millis(self.config.error_sleep_millis)).await;
                 }
             }
         }
@@ -201,30 +193,26 @@ impl PaymentWorker {
 // Message polling loop
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     println!("Starting payment worker...");
 
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:password@postgres:5432/payments".to_string());
-    
-    let redis_url = std::env::var("REDIS_URL")
-        .unwrap_or_else(|_| "redis://redis:6379".to_string());
+    let config = PaymentWorkerConfig::from_env()?;
+    config.log_configuration();
 
     // Create database connection pool
     let db_pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
+        .max_connections(config.database_max_connections)
+        .connect(&config.database_url)
         .await?;
 
     let mut queue = Rsmq::new(RsmqOptions {
-        host: "redis".to_string(),
-        port: 6379,
+        host: config.redis_host.clone(),
+        port: config.redis_port,
         ..Default::default()
     }).await?;
-    let queue_name = "payment_queue";
 
     // Ensure queue exists - create if doesn't exist
-    match queue.create_queue(queue_name, None, None, None).await {
+    match queue.create_queue(&config.queue_name, None, None, None).await {
         Ok(_) => println!("Payment queue created successfully"),
         Err(e) => {
             if e.to_string().contains("already exists") {
@@ -236,11 +224,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Create health client for querying processor health
-    let health_client = RedisHealthClient::new(&redis_url, 30, 5)?;
+
+    let health_config = HealthCheckerConfig::from_env().unwrap();
+    health_config.log_configuration();
+    
+    let health_monitor = HealthMonitor::new(health_config).unwrap();
+
 
     println!("Connected to database and Redis queue, listening for messages...");
 
-    let mut worker = PaymentWorker::new(queue, queue_name.to_string(), db_pool, health_client);
-    worker.process_payments().await
+    let processor = Arc::new(PaymentProcessor::new(health_monitor, &config));
+
+    let concurrency = config.worker_concurrency;
+
+    let mut handles = Vec::new();
+    for _ in 0..concurrency {
+        // Cada worker recebe sua própria instância de Rsmq
+        let queue = Rsmq::new(RsmqOptions {
+            host: config.redis_host.clone(),
+            port: config.redis_port,
+            ..Default::default()
+        }).await.expect("Failed to create Rsmq instance");
+        let worker = Arc::new(PaymentWorker::new(queue, config.queue_name.clone(), db_pool.clone(), processor.clone(), config.clone()));
+        let worker_clone = worker.clone();
+        handles.push(tokio::spawn(async move {
+            worker_clone.worker_loop().await;
+        }));
+    }
+    for handle in handles {
+        let _ = handle.await;
+    }
+    println!("All workers have been started, waiting for messages...");
+    Ok(())
 }

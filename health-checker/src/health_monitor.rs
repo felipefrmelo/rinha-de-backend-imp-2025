@@ -108,20 +108,31 @@ impl HealthMonitor {
         Ok(())
     }
 
-    pub async fn get_best_processor(&self) -> Result<String, Box<dyn std::error::Error>> {
+    pub async fn get_best_processor(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let default_health = self.redis_client.get_processor_health("default").await?;
         let fallback_health = self.redis_client.get_processor_health("fallback").await?;
 
         match (default_health, fallback_health) {
             (Some(default), Some(fallback)) => {
-                // Prefer default if it's not failing (lower fees)
-                if !default.failing {
+                // Both processors available - compare performance
+                if !default.failing && !fallback.failing {
+                    // Both healthy - prefer fallback if it's significantly faster
+                    if fallback.min_response_time * 2 < default.min_response_time {
+                        Ok("fallback".to_string())
+                    } else {
+                        Ok("default".to_string()) // Default for lower fees
+                    }
+                } else if !default.failing {
                     Ok("default".to_string())
                 } else if !fallback.failing {
                     Ok("fallback".to_string())
                 } else {
-                    // Both failing, choose default anyway (original behavior)
-                    Ok("default".to_string())
+                    // Both failing, choose the one with better response time
+                    if fallback.min_response_time < default.min_response_time {
+                        Ok("fallback".to_string())
+                    } else {
+                        Ok("default".to_string())
+                    }
                 }
             }
             (Some(default), None) => {
