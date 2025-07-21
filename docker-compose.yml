@@ -4,6 +4,11 @@ services:
     image: redis:8-alpine
     ports:
       - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 40M
     networks:
       - backend
     healthcheck:
@@ -24,6 +29,11 @@ services:
       POSTGRES_PASSWORD: password
     volumes:
       - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 80M
     networks:
       - backend
     healthcheck:
@@ -36,8 +46,8 @@ services:
   # API instances
   app1: &app
     build:
-      context: ./api
-      dockerfile: Dockerfile
+      context: .
+      target: api
     environment:
       - DATABASE_URL=postgres://postgres:password@postgres:5432/payments
       - REDIS_URL=redis://redis:6379
@@ -45,6 +55,11 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 45M
     networks:
       - backend
 
@@ -73,19 +88,19 @@ services:
   payment-worker1: &worker
     build:
       context: .
-      dockerfile: ./payment-worker/Dockerfile
+      target: payment-worker
     environment:
       - DATABASE_URL=postgres://postgres:password@postgres:5432/payments
       - REDIS_URL=redis://redis:6379
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - QUEUE_NAME=payment_queue
-      - WORKER_CONCURRENCY=4
-      - DATABASE_MAX_CONNECTIONS=10
+      - WORKER_CONCURRENCY=15
+      - DATABASE_MAX_CONNECTIONS=40
       - HTTP_CLIENT_TIMEOUT_SECS=6
       - QUEUE_RECEIVE_TIMEOUT_SECS=6
-      - POLL_SLEEP_MILLIS=200
-      - ERROR_SLEEP_MILLIS=200
+      - POLL_SLEEP_MILLIS=10
+      - ERROR_SLEEP_MILLIS=20
       - PROCESS_SLEEP_MILLIS=1
       - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
       - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
@@ -94,6 +109,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 35M
     networks:
       - payment-processor
       - backend
@@ -104,8 +124,8 @@ services:
   # Health Checker
   health-checker:
     build:
-      context: ./health-checker
-      dockerfile: Dockerfile
+      context: .
+      target: health-checker
     environment:
       - REDIS_URL=redis://redis:6379
       - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
