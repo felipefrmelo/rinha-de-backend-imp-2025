@@ -1,14 +1,19 @@
--- Initialize PGMQ extension
-CREATE EXTENSION IF NOT EXISTS pgmq;
 
--- The PGMQ extension will handle queue creation in the application
--- This file ensures the extension is available when the worker starts
 
--- Create table for processed payments
-CREATE TABLE IF NOT EXISTS processed_payments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    correlation_id VARCHAR(255) NOT NULL UNIQUE,
-    amount DECIMAL(10,2) NOT NULL,
-    requested_at TIMESTAMPTZ NOT NULL,
-    processor VARCHAR(50) NOT NULL
+-- Tabela ultra-rápida (UNLOGGED)
+-- Tabela UNLOGGED + sem PK = máxima velocidade
+CREATE UNLOGGED TABLE processed_payments (
+    correlation_id TEXT NOT NULL,
+    amount NUMERIC(10,2) NOT NULL,
+    requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processor TEXT NOT NULL
 );
+
+-- Apenas índice de unicidade (BTREE suporta unique constraints)
+CREATE UNIQUE INDEX idx_correlation_unique 
+ON processed_payments USING btree (correlation_id);
+
+-- Índice para requested_at 
+CREATE INDEX idx_payments_requested_at 
+ON processed_payments USING btree (requested_at DESC);
+
