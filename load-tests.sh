@@ -25,7 +25,7 @@ docker compose up -d
 cd ..
 
 echo "⏳ Aguardando payment processors ficarem prontos..."
-sleep 5
+sleep 1
 
 echo "🏥 Verificando saúde dos payment processors..."
 for i in {1..30}; do
