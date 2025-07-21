@@ -143,46 +143,37 @@ impl PaymentWorker {
     }
 
     pub async fn worker_loop(self: Arc<Self>) {
-        println!("Worker loop started");
         loop {
-            println!("Polling for messages...");
             let mut queue = self.queue.lock().await;
             match queue.receive_message::<String>(&self.queue_name, Some(Duration::from_secs(self.config.queue_receive_timeout_secs))).await {
                 Ok(Some(message)) => {
                     let payment_message: PaymentMessage = match serde_json::from_str(&message.message) {
                         Ok(msg) => msg,
                         Err(e) => {
-                            println!("Failed to deserialize message: {e}");
+                            eprintln!("Failed to deserialize message: {e}");
                             let _ = queue.delete_message(&self.queue_name, &message.id).await;
                             continue;
                         }
                     };
-                    println!("Received payment message: {payment_message:?}");
-                    println!("Processing payment for correlation ID: {}", payment_message.correlation_id);
 
                     match self.processor.process_payment(&payment_message).await {
-                        Ok((response, processor_used)) => {
-                            println!("Payment processed successfully: {response:?}");
+                        Ok((_, processor_used)) => {
                             if let Err(e) = self.save_processed_payment(&payment_message, &processor_used).await {
-                                println!("Failed to save processed payment: {e}");
-                            } else {
-                                println!("Payment saved to database successfully");
+                                eprintln!("Failed to save processed payment: {e}");
                             }
                             let _ = queue.delete_message(&self.queue_name, &message.id).await;
-                            println!("Message deleted from queue, continuing to next message...");
                             sleep(Duration::from_millis(self.config.process_sleep_millis)).await;
                         }
                         Err(e) => {
-                            println!("Failed to process payment: {e}");
+                            eprintln!("Failed to process payment: {e}");
                         }
                     }
                 }
                 Ok(None) => {
-                    println!("No messages available, waiting...");
                     sleep(Duration::from_millis(self.config.poll_sleep_millis)).await;
                 }
                 Err(e) => {
-                    println!("Error receiving message: {e}");
+                    eprintln!("Error receiving message: {e}");
                     sleep(Duration::from_millis(self.config.error_sleep_millis)).await;
                 }
             }
@@ -194,8 +185,6 @@ impl PaymentWorker {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    println!("Starting payment worker...");
-
     let config = PaymentWorkerConfig::from_env()?;
     config.log_configuration();
 
@@ -213,25 +202,19 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     // Ensure queue exists - create if doesn't exist
     match queue.create_queue(&config.queue_name, None, None, None).await {
-        Ok(_) => println!("Payment queue created successfully"),
+        Ok(_) => {},
         Err(e) => {
-            if e.to_string().contains("already exists") {
-                println!("Payment queue already exists");
-            } else {
-                println!("Failed to create payment queue: {}", e);
+            if !e.to_string().contains("already exists") {
+                eprintln!("Failed to create payment queue: {}", e);
                 return Err(e.into());
             }
         }
     }
 
-
     let health_config = HealthCheckerConfig::from_env().unwrap();
     health_config.log_configuration();
     
     let health_monitor = HealthMonitor::new(health_config).unwrap();
-
-
-    println!("Connected to database and Redis queue, listening for messages...");
 
     let processor = Arc::new(PaymentProcessor::new(health_monitor, &config));
 
@@ -239,7 +222,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let mut handles = Vec::new();
     for _ in 0..concurrency {
-        // Cada worker recebe sua própria instância de Rsmq
         let queue = Rsmq::new(RsmqOptions {
             host: config.redis_host.clone(),
             port: config.redis_port,
@@ -254,6 +236,5 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     for handle in handles {
         let _ = handle.await;
     }
-    println!("All workers have been started, waiting for messages...");
     Ok(())
 }
