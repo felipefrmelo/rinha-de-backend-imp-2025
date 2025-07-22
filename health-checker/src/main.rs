@@ -1,4 +1,5 @@
 use health_checker::{HealthCheckerConfig, HealthMonitor, RedisHealthStorage, ReqwestHttpClient};
+use tokio::time;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,5 +21,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let health_monitor = HealthMonitor::build(storage, http_client)?;
 
-    health_monitor.start_monitoring_loop().await;
+    health_monitor.run().await;
 }

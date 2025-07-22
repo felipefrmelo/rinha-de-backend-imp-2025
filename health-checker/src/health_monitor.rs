@@ -274,27 +274,18 @@ impl HealthMonitor {
         Ok(processor)
     }
 
-    pub async fn start_monitoring_loop(&self) -> ! {
+    pub async fn run(&self) -> ! {
         println!("Health checker initialized. Starting monitoring loop...");
 
         loop {
-            let default_processor = Processor::Default(ProcessorDefault::new(
-                self.config.default_processor_url.clone(),
-            ));
-            if let Err(e) = self.check_processor_health(&default_processor).await {
-                eprintln!("Error checking default processor: {e}");
+            match self.monitor_all_processors().await {
+                Ok(()) => {
+                    println!("Health check cycle completed successfully");
+                }
+                Err(e) => {
+                    eprintln!("Error during health check cycle: {e}");
+                }
             }
-
-            time::sleep(self.config.inter_check_delay).await;
-
-            let fallback_processor = Processor::Fallback(ProcessorFallback::new(
-                self.config.fallback_processor_url.clone(),
-            ));
-            if let Err(e) = self.check_processor_health(&fallback_processor).await {
-                eprintln!("Error checking fallback processor: {e}");
-            }
-
-            println!("Health check cycle completed successfully");
 
             time::sleep(self.get_cycle_interval()).await;
         }

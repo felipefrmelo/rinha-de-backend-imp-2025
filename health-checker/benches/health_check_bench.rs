@@ -111,20 +111,10 @@ fn bench_monitor_all_processors(c: &mut Criterion) {
         b.iter(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let config = make_health_config();
                 let monitor = make_healt_monitor();
 
-                // Check default processor
-                let default_processor = Processor::Default(ProcessorDefault::new(
-                    config.default_processor_url.clone(),
-                ));
-                let _ = monitor.check_processor_health(&default_processor).await;
-
-                // Check fallback processor  
-                let fallback_processor = Processor::Fallback(ProcessorFallback::new(
-                    config.fallback_processor_url.clone(),
-                ));
-                let result = monitor.check_processor_health(&fallback_processor).await;
+                // This benchmarks the full monitoring cycle for all processors
+                let result = monitor.monitor_all_processors().await;
                 let _ = black_box(result);
             })
         })
