@@ -1,6 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use health_checker::{
-    HealthCheckerConfig, HealthMonitor, HealthStorage, RedisHealthStorage, ReqwestHttpClient,
+    health_monitor::{ProcessorDefault, ProcessorFallback},
+    HealthCheckerConfig, HealthMonitor, HealthStorage, Processor, RedisHealthStorage,
+    ReqwestHttpClient,
 };
 use std::time::Duration;
 
@@ -23,20 +25,7 @@ fn bench_health_check_endpoint(c: &mut Criterion) {
         b.iter(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let config = fun_name();
-
-                let storage = Box::new(
-                    RedisHealthStorage::new(
-                        &config.redis_url,
-                        config.health_status_ttl,
-                        config.rate_limit_ttl,
-                    )
-                    .unwrap(),
-                );
-
-                let http_client = Box::new(ReqwestHttpClient::new(config.http_timeout).unwrap());
-
-                let monitor = HealthMonitor::new(storage, http_client, config).unwrap();
+                let monitor = fun_name1();
 
                 // Benchmark the get_best_processor method (main health check logic)
                 let result = monitor.get_best_processor().await;
@@ -44,6 +33,30 @@ fn bench_health_check_endpoint(c: &mut Criterion) {
             })
         })
     });
+}
+
+fn fun_name1() -> HealthMonitor {
+    let config = fun_name();
+
+    let storage = Box::new(
+        RedisHealthStorage::new(
+            &config.redis_url,
+            config.health_status_ttl,
+            config.rate_limit_ttl,
+        )
+        .unwrap(),
+    );
+
+    let http_client = Box::new(ReqwestHttpClient::new(config.http_timeout).unwrap());
+
+    let processors = vec![
+        Processor::Default(ProcessorDefault::new(config.default_processor_url.clone())),
+        Processor::Fallback(ProcessorFallback::new(
+            config.fallback_processor_url.clone(),
+        )),
+    ];
+    
+    HealthMonitor::new(storage, http_client, config, processors).unwrap()
 }
 
 fn bench_storage_operations(c: &mut Criterion) {
@@ -65,19 +78,7 @@ fn bench_processor_selection_logic(c: &mut Criterion) {
         b.iter(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let config = fun_name();
-                let storage = Box::new(
-                    RedisHealthStorage::new(
-                        &config.redis_url,
-                        config.health_status_ttl,
-                        config.rate_limit_ttl,
-                    )
-                    .unwrap(),
-                );
-
-                let http_client = Box::new(ReqwestHttpClient::new(config.http_timeout).unwrap());
-
-                let monitor = HealthMonitor::new(storage, http_client, config).unwrap();
+                let monitor = fun_name1();
 
                 // This benchmarks the processor selection algorithm
                 let best_processor = monitor.get_best_processor().await;

@@ -119,6 +119,7 @@ impl RateLimitEntry {
     }
 }
 
+#[allow(dead_code)]
 pub struct MockHealthStorage {
     health_data: Arc<Mutex<HashMap<String, ProcessorHealthStatus>>>,
     rate_limits: Arc<Mutex<HashMap<String, RateLimitEntry>>>,

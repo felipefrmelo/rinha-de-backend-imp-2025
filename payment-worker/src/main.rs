@@ -29,6 +29,8 @@ struct PaymentRequest {
     requested_at: String,
 }
 
+
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct PaymentResponse {
     message: String,
@@ -55,7 +57,7 @@ impl PaymentProcessor {
             .get_best_processor()
             .await?;
 
-        Ok((processor.name, processor.url))
+        Ok((processor.name().to_string(), processor.url().to_string()))
 
 
     }
@@ -212,7 +214,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     
     let http_client = Box::new(ReqwestHttpClient::new(health_config.http_timeout).unwrap());
     
-    let health_monitor = HealthMonitor::new(storage, http_client, health_config).unwrap();
+    let health_monitor = HealthMonitor::build(storage, http_client).unwrap();
 
     let processor = Arc::new(PaymentProcessor::new(health_monitor, &config));
 
