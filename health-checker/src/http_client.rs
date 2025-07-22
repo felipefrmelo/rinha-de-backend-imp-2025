@@ -3,10 +3,23 @@ use reqwest::Client;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::time::Duration;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum HttpClientError {
+    #[error("HTTP request failed")]
+    RequestError,
+    #[error("Failed to parse response")]
+    ResponseParseError,
+    #[error("Connection timeout")]
+    TimeoutError,
+    #[error("Invalid URL")]
+    InvalidUrlError,
+}
 
 #[async_trait]
 pub trait HttpClient: Send + Sync {
-    async fn get(&self, url: &str) -> Result<HttpResponse, Box<dyn std::error::Error + Send + Sync>>;
+    async fn get(&self, url: &str) -> Result<HttpResponse, HttpClientError>;
 }
 
 pub struct HttpResponse {
@@ -41,13 +54,14 @@ impl ReqwestHttpClient {
 
 #[async_trait]
 impl HttpClient for ReqwestHttpClient {
-    async fn get(&self, url: &str) -> Result<HttpResponse, Box<dyn std::error::Error + Send + Sync>> {
-        let response = self.client.get(url).send().await?;
+    async fn get(&self, url: &str) -> Result<HttpResponse, HttpClientError> {
+        let response = self.client.get(url).send().await
+            .map_err(|_| HttpClientError::RequestError)?;
         let status_code = response.status().as_u16();
         let is_success = response.status().is_success();
-        let body = response.json().await?;
+        let body = response.text().await
+            .map_err(|_| HttpClientError::ResponseParseError)?;
 
-        
         Ok(HttpResponse {
             status_code,
             body,
@@ -106,7 +120,7 @@ impl Default for MockHttpClient {
 
 #[async_trait]
 impl HttpClient for MockHttpClient {
-    async fn get(&self, url: &str) -> Result<HttpResponse, Box<dyn std::error::Error + Send + Sync>> {
+    async fn get(&self, url: &str) -> Result<HttpResponse, HttpClientError> {
         let mock_response = self.responses
             .get(url)
             .unwrap_or(&self.default_response);

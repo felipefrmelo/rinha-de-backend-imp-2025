@@ -12,6 +12,7 @@ chrono = { version = "0.4.38", features = ["serde"] }
 reqwest = { version = "0.12.22", features = ["json"] }
 async-trait = "0.1.77"
 criterion = { version = "0.5", features = ["html_reports"] }
+thiserror = "2.0.12"
 
 [[bench]]
 name = "health_check_bench"

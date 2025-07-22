@@ -2,8 +2,23 @@ use async_trait::async_trait;
 use redis::AsyncCommands;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use thiserror::Error;
 
 use crate::health_monitor::ProcessorHealthStatus;
+
+#[derive(Error, Debug)]
+pub enum HealthStorageError {
+    #[error("Failed to connect to storage")]
+    ConnectionError,
+    #[error("Failed to serialize data")]
+    SerializationError,
+    #[error("Failed to retrieve data")]
+    RetrievalError,
+    #[error("Failed to store data")]
+    StorageError,
+    #[error("Rate limit operation failed")]
+    RateLimitError,
+}
 
 #[async_trait]
 pub trait HealthStorage: Send + Sync {
@@ -11,22 +26,22 @@ pub trait HealthStorage: Send + Sync {
         &self,
         processor_name: &str,
         health_status: &ProcessorHealthStatus,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<(), HealthStorageError>;
 
     async fn get_processor_health(
         &self,
         processor_name: &str,
-    ) -> Result<Option<ProcessorHealthStatus>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<Option<ProcessorHealthStatus>, HealthStorageError>;
 
     async fn check_rate_limit(
         &self,
         processor_name: &str,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<bool, HealthStorageError>;
 
     async fn set_rate_limit(
         &self,
         processor_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<(), HealthStorageError>;
 }
 
 pub struct RedisHealthStorage {
@@ -56,26 +71,32 @@ impl HealthStorage for RedisHealthStorage {
         &self,
         processor_name: &str,
         health_status: &ProcessorHealthStatus,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut conn = self.client.get_multiplexed_tokio_connection().await?;
+    ) -> Result<(), HealthStorageError> {
+        let mut conn = self.client.get_multiplexed_tokio_connection().await
+            .map_err(|_| HealthStorageError::ConnectionError)?;
         let key = format!("health:{processor_name}");
-        let json_data = serde_json::to_string(health_status)?;
+        let json_data = serde_json::to_string(health_status)
+            .map_err(|_| HealthStorageError::SerializationError)?;
 
-        let _: () = conn.set_ex(&key, json_data, self.health_status_ttl).await?;
+        let _: () = conn.set_ex(&key, json_data, self.health_status_ttl).await
+            .map_err(|_| HealthStorageError::StorageError)?;
         Ok(())
     }
 
     async fn get_processor_health(
         &self,
         processor_name: &str,
-    ) -> Result<Option<ProcessorHealthStatus>, Box<dyn std::error::Error + Send + Sync>> {
-        let mut conn = self.client.get_multiplexed_tokio_connection().await?;
+    ) -> Result<Option<ProcessorHealthStatus>, HealthStorageError> {
+        let mut conn = self.client.get_multiplexed_tokio_connection().await
+            .map_err(|_| HealthStorageError::ConnectionError)?;
         let key = format!("health:{processor_name}");
 
-        let json_data: Option<String> = conn.get::<_, Option<String>>(&key).await?;
+        let json_data: Option<String> = conn.get::<_, Option<String>>(&key).await
+            .map_err(|_| HealthStorageError::RetrievalError)?;
         match json_data {
             Some(data) => {
-                let health_status: ProcessorHealthStatus = serde_json::from_str(&data)?;
+                let health_status: ProcessorHealthStatus = serde_json::from_str(&data)
+                    .map_err(|_| HealthStorageError::SerializationError)?;
                 Ok(Some(health_status))
             }
             None => Ok(None),
@@ -85,24 +106,28 @@ impl HealthStorage for RedisHealthStorage {
     async fn check_rate_limit(
         &self,
         processor_name: &str,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let mut conn = self.client.get_multiplexed_tokio_connection().await?;
+    ) -> Result<bool, HealthStorageError> {
+        let mut conn = self.client.get_multiplexed_tokio_connection().await
+            .map_err(|_| HealthStorageError::ConnectionError)?;
         let rate_limit_key = format!("rate_limit:{processor_name}");
 
-        let exists: bool = conn.exists(&rate_limit_key).await?;
+        let exists: bool = conn.exists(&rate_limit_key).await
+            .map_err(|_| HealthStorageError::RateLimitError)?;
         Ok(!exists)
     }
 
     async fn set_rate_limit(
         &self,
         processor_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut conn = self.client.get_multiplexed_tokio_connection().await?;
+    ) -> Result<(), HealthStorageError> {
+        let mut conn = self.client.get_multiplexed_tokio_connection().await
+            .map_err(|_| HealthStorageError::ConnectionError)?;
         let rate_limit_key = format!("rate_limit:{processor_name}");
 
         let _: () = conn
             .set_ex(&rate_limit_key, "1", self.rate_limit_ttl)
-            .await?;
+            .await
+            .map_err(|_| HealthStorageError::RateLimitError)?;
         Ok(())
     }
 }
@@ -144,8 +169,9 @@ impl HealthStorage for MockHealthStorage {
         &self,
         processor_name: &str,
         health_status: &ProcessorHealthStatus,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut health_data = self.health_data.lock().unwrap();
+    ) -> Result<(), HealthStorageError> {
+        let mut health_data = self.health_data.lock()
+            .map_err(|_| HealthStorageError::StorageError)?;
         health_data.insert(processor_name.to_string(), health_status.clone());
         Ok(())
     }
@@ -153,16 +179,18 @@ impl HealthStorage for MockHealthStorage {
     async fn get_processor_health(
         &self,
         processor_name: &str,
-    ) -> Result<Option<ProcessorHealthStatus>, Box<dyn std::error::Error + Send + Sync>> {
-        let health_data = self.health_data.lock().unwrap();
+    ) -> Result<Option<ProcessorHealthStatus>, HealthStorageError> {
+        let health_data = self.health_data.lock()
+            .map_err(|_| HealthStorageError::RetrievalError)?;
         Ok(health_data.get(processor_name).cloned())
     }
 
     async fn check_rate_limit(
         &self,
         processor_name: &str,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let mut rate_limits = self.rate_limits.lock().unwrap();
+    ) -> Result<bool, HealthStorageError> {
+        let mut rate_limits = self.rate_limits.lock()
+            .map_err(|_| HealthStorageError::RateLimitError)?;
 
         if let Some(entry) = rate_limits.get(processor_name) {
             if entry.is_expired() {
@@ -179,8 +207,9 @@ impl HealthStorage for MockHealthStorage {
     async fn set_rate_limit(
         &self,
         processor_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut rate_limits = self.rate_limits.lock().unwrap();
+    ) -> Result<(), HealthStorageError> {
+        let mut rate_limits = self.rate_limits.lock()
+            .map_err(|_| HealthStorageError::RateLimitError)?;
         rate_limits.insert(
             processor_name.to_string(),
             RateLimitEntry {
