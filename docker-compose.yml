@@ -97,13 +97,20 @@ services:
       - QUEUE_NAME=payment_queue
       - WORKER_CONCURRENCY=15
       - DATABASE_MAX_CONNECTIONS=40
-      - HTTP_CLIENT_TIMEOUT_SECS=6
-      - QUEUE_RECEIVE_TIMEOUT_SECS=6
+      - HTTP_CLIENT_TIMEOUT_SECS=10
+      - QUEUE_RECEIVE_TIMEOUT_SECS=10
       - POLL_SLEEP_MILLIS=10
       - ERROR_SLEEP_MILLIS=20
       - PROCESS_SLEEP_MILLIS=1
-      - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
-      - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
+      # Health Checker Config (usado pelo payment-worker)
+      - HEALTH_CHECK_CYCLE_INTERVAL_SECS=5
+      - HTTP_TIMEOUT_SECS=10
+      - INTER_CHECK_DELAY_MILLIS=100
+      - HEALTH_STATUS_TTL_SECS=60
+      - RATE_LIMIT_TTL_SECS=5
+      - FAILED_RESPONSE_TIME_VALUE=9999
+      - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
+      - FALLBACK_PROCESSOR_URL=http://payment-processor-fallback:8080
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,6 +137,12 @@ services:
       - REDIS_URL=redis://redis:6379
       - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
       - FALLBACK_PROCESSOR_URL=http://payment-processor-fallback:8080
+      - HEALTH_CHECK_CYCLE_INTERVAL_SECS=5
+      - HTTP_TIMEOUT_SECS=10
+      - INTER_CHECK_DELAY_MILLIS=100
+      - HEALTH_STATUS_TTL_SECS=60
+      - RATE_LIMIT_TTL_SECS=5
+      - FAILED_RESPONSE_TIME_VALUE=9999
     depends_on:
       redis:
         condition: service_healthy

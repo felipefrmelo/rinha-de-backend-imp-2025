@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use tokio::time::sleep;
 use std::{error::Error, time::Duration};
-use health_checker::{HealthMonitor,HealthCheckerConfig};
+use health_checker::{HealthMonitor, HealthCheckerConfig, RedisHealthStorage, ReqwestHttpClient};
 
 mod config;
 use config::PaymentWorkerConfig;
@@ -36,8 +36,6 @@ struct PaymentResponse {
 
 struct PaymentProcessor {
     client: Client,
-    default_url: String,
-    fallback_url: String,
     health_monitor: HealthMonitor,
 }
 
@@ -48,24 +46,16 @@ impl PaymentProcessor {
                 .timeout(Duration::from_secs(config.http_client_timeout_secs))
                 .build()
                 .expect("Failed to create HTTP client"),
-            default_url: config.payment_processor_default_url.clone(),
-            fallback_url: config.payment_processor_fallback_url.clone(),
             health_monitor,
         }
     }
 
-    async fn get_best_processor(&self) -> Result<(&str, &str), Box<dyn Error + Send + Sync>> {
+    async fn get_best_processor(&self) -> Result<(String, String), Box<dyn Error + Send + Sync>> {
         let processor = self.health_monitor
             .get_best_processor()
             .await?;
 
-        if processor == "default" {
-            Ok(("default", &self.default_url))
-        } else if processor == "fallback" {
-            Ok(("fallback", &self.fallback_url))
-        } else {
-            Err(format!("Unknown processor: {}", processor).into())
-        }
+        Ok((processor.name, processor.url))
 
 
     }
@@ -214,7 +204,15 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let health_config = HealthCheckerConfig::from_env().unwrap();
     health_config.log_configuration();
     
-    let health_monitor = HealthMonitor::new(health_config).unwrap();
+    let storage = Box::new(RedisHealthStorage::new(
+        &health_config.redis_url,
+        health_config.health_status_ttl,
+        health_config.rate_limit_ttl
+    ).unwrap());
+    
+    let http_client = Box::new(ReqwestHttpClient::new(health_config.http_timeout).unwrap());
+    
+    let health_monitor = HealthMonitor::new(storage, http_client, health_config).unwrap();
 
     let processor = Arc::new(PaymentProcessor::new(health_monitor, &config));
 

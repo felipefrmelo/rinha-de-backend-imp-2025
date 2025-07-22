@@ -1,4 +1,4 @@
-use health_checker::{HealthMonitor, HealthCheckerConfig};
+use health_checker::{HealthMonitor, HealthCheckerConfig, RedisHealthStorage, ReqwestHttpClient};
 use tokio::time;
 
 #[tokio::main]
@@ -9,7 +9,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = HealthCheckerConfig::from_env()?;
     config.log_configuration();
     
-    let health_monitor = HealthMonitor::new(config)?;
+    // Create Redis storage
+    let storage = Box::new(RedisHealthStorage::new(
+        &config.redis_url,
+        config.health_status_ttl,
+        config.rate_limit_ttl
+    )?);
+    
+    // Create HTTP client
+    let http_client = Box::new(ReqwestHttpClient::new(config.http_timeout)?);
+    
+    let health_monitor = HealthMonitor::new(storage, http_client, config)?;
     
     println!("Health checker initialized. Starting monitoring loop...");
     

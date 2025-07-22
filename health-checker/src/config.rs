@@ -21,7 +21,7 @@ impl HealthCheckerConfig {
             
             health_check_cycle_interval: Duration::from_secs(
                 std::env::var("HEALTH_CHECK_CYCLE_INTERVAL_SECS")
-                    .unwrap_or_else(|_| "4".to_string())
+                    .unwrap_or_else(|_| "30".to_string())
                     .parse::<u64>()?
             ),
             
@@ -38,7 +38,7 @@ impl HealthCheckerConfig {
             ),
             
             health_status_ttl: std::env::var("HEALTH_STATUS_TTL_SECS")
-                .unwrap_or_else(|_| "30".to_string())
+                .unwrap_or_else(|_| "60".to_string())
                 .parse::<u64>()?,
             
             rate_limit_ttl: std::env::var("RATE_LIMIT_TTL_SECS")
@@ -52,7 +52,7 @@ impl HealthCheckerConfig {
                 .unwrap_or_else(|_| "http://payment-processor-fallback:8080".to_string()),
             
             failed_response_time_value: std::env::var("FAILED_RESPONSE_TIME_VALUE")
-                .unwrap_or_else(|_| "1000".to_string())
+                .unwrap_or_else(|_| "9999".to_string())
                 .parse::<u64>()?,
         };
 
